@@ -87,13 +87,25 @@ fi
 
 DOMAIN="$(get_env DOMAIN)"
 if [ -z "$DOMAIN" ]; then
-    echo ""
-    echo "  Enter your domain name or public IP address."
-    echo "  Domain → HTTPS with automatic TLS certificate (Let's Encrypt)."
-    echo "  IP     → HTTP only (no TLS)."
-    echo ""
-    read -rp "  Domain or IP: " DOMAIN
-    [ -z "$DOMAIN" ] && die "Domain or IP is required."
+    if [ -t 0 ]; then
+        # Interactive terminal — prompt
+        echo ""
+        echo "  Enter your domain name or public IP address."
+        echo "  Domain → HTTPS with automatic TLS certificate (Let's Encrypt)."
+        echo "  IP     → HTTP only (no TLS)."
+        echo ""
+        read -rp "  Domain or IP: " DOMAIN
+        [ -z "$DOMAIN" ] && die "Domain or IP is required."
+    else
+        # Non-interactive (piped through curl | bash) — auto-detect public IP
+        info "Non-interactive mode — detecting public IP address…"
+        DOMAIN="$(curl -fsSL --max-time 5 https://ifconfig.me 2>/dev/null \
+               || curl -fsSL --max-time 5 https://icanhazip.com 2>/dev/null \
+               || echo "")"
+        [ -z "$DOMAIN" ] && die "Could not detect public IP. Set DOMAIN before running: DOMAIN=your-ip bash install.sh"
+        info "Detected public IP: ${DOMAIN}"
+        warn "Running on HTTP (IP address). Point a domain here and re-run for HTTPS."
+    fi
     set_env DOMAIN "$DOMAIN"
 fi
 info "Using DOMAIN=${DOMAIN}"
