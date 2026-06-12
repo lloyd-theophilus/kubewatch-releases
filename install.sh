@@ -98,22 +98,17 @@ if [ -z "$DOMAIN" ]; then
 fi
 info "Using DOMAIN=${DOMAIN}"
 
-# ── Admin credentials ──────────────────────────────────────────────────────────
+# ── Admin credentials (defaults — change after first login) ───────────────────
 
 ADMIN_EMAIL="$(get_env ADMIN_EMAIL)"
 if [ -z "$ADMIN_EMAIL" ] || [ "$ADMIN_EMAIL" = "admin@example.com" ]; then
-    echo ""
-    read -rp "  Admin email address: " ADMIN_EMAIL
-    [ -z "$ADMIN_EMAIL" ] && die "Admin email is required."
+    ADMIN_EMAIL="admin@kubewatch.local"
     set_env ADMIN_EMAIL "$ADMIN_EMAIL"
 fi
 
 ADMIN_PASSWORD="$(get_env ADMIN_PASSWORD)"
 if [ -z "$ADMIN_PASSWORD" ]; then
-    echo ""
-    read -rsp "  Admin password: " ADMIN_PASSWORD
-    echo ""
-    [ -z "$ADMIN_PASSWORD" ] && die "Admin password is required."
+    ADMIN_PASSWORD="Admin"
     set_env ADMIN_PASSWORD "$ADMIN_PASSWORD"
 fi
 
@@ -176,10 +171,11 @@ echo "  │                   KubeWatch is running                          │"
 echo "  ├─────────────────────────────────────────────────────────────────┤"
 printf "  │  URL              %-48s│\n" "${PROTOCOL}://${DOMAIN}"
 printf "  │  Admin email      %-48s│\n" "$(get_env ADMIN_EMAIL)"
+printf "  │  Admin password   %-48s│\n" "$(get_env ADMIN_PASSWORD)"
 printf "  │  Agent API key    %-48s│\n" "$(get_env KUBEWATCH_API_KEY)"
 echo "  ├─────────────────────────────────────────────────────────────────┤"
-echo "  │  First visit → setup wizard → create your org + admin account   │"
-echo "  │  Use the Agent API key above when deploying kubewatch-agent.     │"
+echo "  │  IMPORTANT: Change the default password after first login.       │"
+echo "  │  Settings → Users → edit your account.                          │"
 echo "  └─────────────────────────────────────────────────────────────────┘"
 echo -e "${NC}"
 echo "  Logs:    docker compose -f ${INSTALL_DIR}/${COMPOSE_FILE} logs -f"
