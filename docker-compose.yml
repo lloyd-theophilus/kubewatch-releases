@@ -1,0 +1,51 @@
+services:
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ../Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - backend
+      - frontend
+    restart: unless-stopped
+
+  backend:
+    image: ghcr.io/lloyd-theophilus/kubewatch-backend:latest
+    environment:
+      PORT: "8080"
+      DB_PATH: "/data/kubewatch.db"
+      JWT_SECRET: "${JWT_SECRET}"
+      JWT_EXPIRY: "${JWT_EXPIRY:-24h}"
+      KUBEWATCH_API_KEY: "${KUBEWATCH_API_KEY}"
+      ADMIN_EMAIL: "${ADMIN_EMAIL:-admin@kubewatch.local}"
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:-admin1234}"
+      SMTP_HOST: "${SMTP_HOST:-}"
+      SMTP_PORT: "${SMTP_PORT:-587}"
+      SMTP_USER: "${SMTP_USER:-}"
+      SMTP_PASS: "${SMTP_PASS:-}"
+      SMTP_FROM: "${SMTP_FROM:-}"
+      ALERT_EMAIL_TO: "${ALERT_EMAIL_TO:-}"
+      SLACK_WEBHOOK_URL: "${SLACK_WEBHOOK_URL:-}"
+      UPDATE_CHECK_URL: "${UPDATE_CHECK_URL:-}"
+    volumes:
+      - kubewatch-data:/data
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    restart: unless-stopped
+
+  frontend:
+    image: ghcr.io/lloyd-theophilus/kubewatch-frontend:latest
+    environment:
+      API_BASE: "http://backend:8080"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  kubewatch-data:
+  caddy-data:
+  caddy-config:
