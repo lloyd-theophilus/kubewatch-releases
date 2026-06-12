@@ -52,6 +52,14 @@ else
     info "docker-compose.yml already present — skipping download"
 fi
 
+if [ ! -f "reconfigure.sh" ]; then
+    info "Downloading reconfigure.sh…"
+    curl -fsSL "${RELEASES_URL}/reconfigure.sh" -o "reconfigure.sh" \
+        || die "Failed to download reconfigure.sh from ${RELEASES_URL}"
+    chmod +x reconfigure.sh
+    info "reconfigure.sh downloaded"
+fi
+
 # ── .env setup ─────────────────────────────────────────────────────────────────
 
 [ -f .env ] || touch .env
@@ -87,28 +95,16 @@ fi
 
 DOMAIN="$(get_env DOMAIN)"
 if [ -z "$DOMAIN" ]; then
-    if [ -t 0 ]; then
-        # Interactive terminal — prompt
-        echo ""
-        echo "  Enter your domain name or public IP address."
-        echo "  Domain → HTTPS with automatic TLS certificate (Let's Encrypt)."
-        echo "  IP     → HTTP only (no TLS)."
-        echo ""
-        read -rp "  Domain or IP: " DOMAIN
-        [ -z "$DOMAIN" ] && die "Domain or IP is required."
-    else
-        # Non-interactive (piped through curl | bash) — auto-detect public IP
-        info "Non-interactive mode — detecting public IP address…"
-        DOMAIN="$(curl -fsSL --max-time 5 https://ifconfig.me 2>/dev/null \
-               || curl -fsSL --max-time 5 https://icanhazip.com 2>/dev/null \
-               || echo "")"
-        [ -z "$DOMAIN" ] && die "Could not detect public IP. Set DOMAIN before running: DOMAIN=your-ip bash install.sh"
-        info "Detected public IP: ${DOMAIN}"
-        warn "Running on HTTP (IP address). Point a domain here and re-run for HTTPS."
-    fi
+    info "Detecting public IP address…"
+    DOMAIN="$(curl -fsSL --max-time 5 https://ifconfig.me 2>/dev/null \
+           || curl -fsSL --max-time 5 https://icanhazip.com 2>/dev/null \
+           || echo "")"
+    [ -z "$DOMAIN" ] && die "Could not detect public IP. Set DOMAIN in .env and re-run."
+    info "Detected: ${DOMAIN}"
     set_env DOMAIN "$DOMAIN"
 fi
 info "Using DOMAIN=${DOMAIN}"
+warn "To enable HTTPS with a custom domain: point your DNS to this IP, then update DOMAIN in ${INSTALL_DIR}/.env — the stack reconfigures automatically."
 
 # ── Admin credentials (defaults — change after first login) ───────────────────
 

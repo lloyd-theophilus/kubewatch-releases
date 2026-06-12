@@ -1,6 +1,9 @@
 services:
   caddy:
     image: caddy:2-alpine
+    # --watch tells Caddy to reload automatically when Caddyfile changes on disk.
+    # The reconfigure service updates Caddyfile when DOMAIN changes in .env.
+    command: caddy run --config /etc/caddy/Caddyfile --adapter caddyfile --watch
     ports:
       - "80:80"
       - "443:443"
@@ -12,6 +15,15 @@ services:
     depends_on:
       - backend
       - frontend
+    restart: unless-stopped
+
+  reconfigure:
+    image: alpine:3.19
+    volumes:
+      - ./.env:/config/.env:ro
+      - ./Caddyfile:/config/Caddyfile
+      - ./reconfigure.sh:/reconfigure.sh:ro
+    command: sh /reconfigure.sh
     restart: unless-stopped
 
   backend:
