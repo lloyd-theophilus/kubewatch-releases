@@ -133,9 +133,18 @@ fi
 
 cat > Caddyfile <<EOF
 ${DOMAIN} {
-    reverse_proxy /api/* backend:8080
-    reverse_proxy /ws     backend:8080
-    reverse_proxy /*      frontend:3000
+    reverse_proxy /api/* backend:8080 {
+        lb_try_duration 30s
+        lb_try_interval 500ms
+    }
+    reverse_proxy /ws backend:8080 {
+        lb_try_duration 30s
+        lb_try_interval 500ms
+    }
+    reverse_proxy /* frontend:3000 {
+        lb_try_duration 30s
+        lb_try_interval 500ms
+    }
 
     header {
         Strict-Transport-Security "max-age=31536000; includeSubDomains"
@@ -151,9 +160,18 @@ EOF
 if [[ "$PROTOCOL" == "http" ]]; then
     cat > Caddyfile <<EOF
 :80 {
-    reverse_proxy /api/* backend:8080
-    reverse_proxy /ws     backend:8080
-    reverse_proxy /*      frontend:3000
+    reverse_proxy /api/* backend:8080 {
+        lb_try_duration 30s
+        lb_try_interval 500ms
+    }
+    reverse_proxy /ws backend:8080 {
+        lb_try_duration 30s
+        lb_try_interval 500ms
+    }
+    reverse_proxy /* frontend:3000 {
+        lb_try_duration 30s
+        lb_try_interval 500ms
+    }
 
     encode gzip
 }
