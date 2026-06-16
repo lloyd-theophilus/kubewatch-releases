@@ -1,210 +1,163 @@
-#!/usr/bin/env bash
-# KubeWatch ERP — Installer
-# Downloads pre-built images and starts the stack. No git clone required.
-#
-# Quick install:
-#   curl -fsSL https://raw.githubusercontent.com/lloyd-theophilus/kubewatch-releases/main/install.sh | bash
-#
-# Or download and inspect first:
-#   curl -fsSL -O https://raw.githubusercontent.com/lloyd-theophilus/kubewatch-releases/main/install.sh
-#   bash install.sh
+#!/bin/bash
+# chmod +x install.sh
 set -euo pipefail
 
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; BOLD='\033[1m'; NC='\033[0m'
+# ANSI colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
 
-info()    { echo -e "${BLUE}[kubewatch]${NC} $*"; }
-success() { echo -e "${GREEN}[kubewatch]${NC} $*"; }
-warn()    { echo -e "${YELLOW}[kubewatch]${NC} $*"; }
-die()     { echo -e "${RED}[kubewatch] ERROR:${NC} $*" >&2; exit 1; }
-
-RELEASES_URL="https://raw.githubusercontent.com/lloyd-theophilus/kubewatch-releases/main"
-COMPOSE_FILE="docker-compose.yml"
-
-echo ""
-echo -e "${BOLD}  KubeWatch — Container Observability Platform${NC}"
-echo "  Installer · Docker Compose + Caddy"
-echo ""
-
-# ── Prerequisites ──────────────────────────────────────────────────────────────
-
-command -v docker  &>/dev/null || die "Docker not found. Install: https://docs.docker.com/engine/install/"
-docker compose version &>/dev/null || die "Docker Compose plugin not found. Install: https://docs.docker.com/compose/install/linux/"
-command -v openssl &>/dev/null || die "openssl not found. Run: sudo apt install openssl  (or: sudo yum install openssl)"
-
-info "Prerequisites OK (Docker $(docker --version | awk '{print $3}' | tr -d ','))"
-
-# ── Working directory ──────────────────────────────────────────────────────────
-
-# When piped through bash the script has no file path; use current directory.
-INSTALL_DIR="${KUBEWATCH_DIR:-$PWD/kubewatch}"
-mkdir -p "$INSTALL_DIR"
-cd "$INSTALL_DIR"
-info "Install directory: $INSTALL_DIR"
-
-# ── Download compose file ──────────────────────────────────────────────────────
-
-if [ ! -f "$COMPOSE_FILE" ]; then
-    info "Downloading docker-compose.yml…"
-    curl -fsSL "${RELEASES_URL}/docker-compose.yml" -o "$COMPOSE_FILE" \
-        || die "Failed to download docker-compose.yml from ${RELEASES_URL}"
-    info "docker-compose.yml downloaded"
-else
-    info "docker-compose.yml already present — skipping download"
-fi
-
-if [ ! -f "reconfigure.sh" ]; then
-    info "Downloading reconfigure.sh…"
-    curl -fsSL "${RELEASES_URL}/reconfigure.sh" -o "reconfigure.sh" \
-        || die "Failed to download reconfigure.sh from ${RELEASES_URL}"
-    chmod +x reconfigure.sh
-    info "reconfigure.sh downloaded"
-fi
-
-# ── .env setup ─────────────────────────────────────────────────────────────────
-
-[ -f .env ] || touch .env
-
-get_env() { grep -E "^$1=" .env 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' || true; }
-
-set_env() {
-    local key="$1" val="$2"
-    if grep -qE "^${key}=" .env 2>/dev/null; then
-        sed -i "s|^${key}=.*|${key}=${val}|" .env
-    else
-        echo "${key}=${val}" >> .env
-    fi
+print_banner() {
+  echo -e "${BLUE}"
+  echo "╔═════════════════════════════════════════╗"
+  echo "║       KubeWatch ERP Installer           ║"
+  echo "╚═════════════════════════════════════════╝"
+  echo -e "${NC}"
 }
 
-# ── Auto-generate secrets ──────────────────────────────────────────────────────
+check_prerequisites() {
+  local missing=0
 
-if [ -z "$(get_env JWT_SECRET)" ]; then
-    set_env JWT_SECRET "$(openssl rand -hex 32)"
-    info "Generated JWT_SECRET"
-else
-    info "JWT_SECRET already set — keeping existing value"
-fi
+  if ! command -v docker &> /dev/null; then
+    echo -e "${RED}Error: docker is not installed or not in PATH.${NC}"
+    echo "  Install Docker: https://docs.docker.com/get-docker/"
+    missing=1
+  fi
 
-if [ -z "$(get_env KUBEWATCH_API_KEY)" ]; then
-    set_env KUBEWATCH_API_KEY "$(openssl rand -hex 16)"
-    info "Generated KUBEWATCH_API_KEY"
-else
-    info "KUBEWATCH_API_KEY already set — keeping existing value"
-fi
+  if ! docker compose version &> /dev/null 2>&1; then
+    echo -e "${RED}Error: 'docker compose' (v2) is not available.${NC}"
+    echo "  Docker Compose v2 ships with Docker Desktop >= 3.4 and Docker Engine >= 20.10."
+    echo "  If you installed Docker Engine on Linux, run:"
+    echo "    sudo apt-get install docker-compose-plugin   # Debian/Ubuntu"
+    echo "    sudo yum install docker-compose-plugin       # RHEL/CentOS"
+    missing=1
+  fi
 
-# ── Domain / IP ────────────────────────────────────────────────────────────────
+  if ! command -v openssl &> /dev/null; then
+    echo -e "${RED}Error: openssl is not installed or not in PATH.${NC}"
+    echo "  Install with: sudo apt-get install openssl  (or  brew install openssl)"
+    missing=1
+  fi
 
-DOMAIN="$(get_env DOMAIN)"
-if [ -z "$DOMAIN" ]; then
-    info "Detecting public IP address…"
-    DOMAIN="$(curl -fsSL --max-time 5 https://ifconfig.me 2>/dev/null \
-           || curl -fsSL --max-time 5 https://icanhazip.com 2>/dev/null \
-           || echo "")"
-    [ -z "$DOMAIN" ] && die "Could not detect public IP. Set DOMAIN in .env and re-run."
-    info "Detected: ${DOMAIN}"
-    set_env DOMAIN "$DOMAIN"
-fi
-info "Using DOMAIN=${DOMAIN}"
-warn "To enable HTTPS with a custom domain: point your DNS to this IP, then update DOMAIN in ${INSTALL_DIR}/.env — the stack reconfigures automatically."
+  if [ "$missing" -eq 1 ]; then
+    echo ""
+    echo -e "${RED}One or more prerequisites are missing. Please install them and re-run the installer.${NC}"
+    exit 1
+  fi
 
-# ── Admin credentials (defaults — change after first login) ───────────────────
+  echo -e "${GREEN}All prerequisites satisfied.${NC}"
+}
 
-ADMIN_EMAIL="$(get_env ADMIN_EMAIL)"
-if [ -z "$ADMIN_EMAIL" ] || [ "$ADMIN_EMAIL" = "admin@example.com" ]; then
-    ADMIN_EMAIL="admin@kubewatch.local"
-    set_env ADMIN_EMAIL "$ADMIN_EMAIL"
-fi
+install_agent_only() {
+  echo ""
+  read -p "KubeWatch API key (from app.kubewatch.io): " API_KEY
+  read -p "Agent name (e.g. 'Production Server'): " AGENT_NAME
 
-ADMIN_PASSWORD="$(get_env ADMIN_PASSWORD)"
-if [ -z "$ADMIN_PASSWORD" ]; then
-    ADMIN_PASSWORD="$(openssl rand -base64 16 | tr -d '=+/')"
-    set_env ADMIN_PASSWORD "$ADMIN_PASSWORD"
-fi
+  echo -e "${YELLOW}Deploying KubeWatch agent...${NC}"
+  docker run -d \
+    --name kubewatch-agent \
+    --restart unless-stopped \
+    -e KUBEWATCH_SERVER_URL=https://api.kubewatch.io \
+    -e KUBEWATCH_API_KEY="$API_KEY" \
+    -e KUBEWATCH_AGENT_NAME="$AGENT_NAME" \
+    -v /var/run/docker.sock:/var/run/docker.sock:ro \
+    -v kubewatch-agent-data:/data \
+    ghcr.io/lloyd-theophilus/kubewatch-agent:latest
 
-# ── Write Caddyfile ────────────────────────────────────────────────────────────
+  echo ""
+  echo -e "${GREEN}Agent deployed!${NC}"
+  echo "   It will appear in your dashboard within 30 seconds."
+  echo "   Dashboard: https://app.kubewatch.io"
+}
 
-if [[ "$DOMAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    PROTOCOL="http"
-    WS_PROTOCOL="ws"
-    warn "IP address detected — running on HTTP (no TLS). Use a domain name for HTTPS."
-else
-    PROTOCOL="https"
-    WS_PROTOCOL="wss"
-fi
+install_self_hosted_erp() {
+  check_prerequisites
 
-cat > Caddyfile <<EOF
+  echo ""
+  read -p "License key (from your purchase email): " LICENSE_KEY
+  read -p "Domain or IP for this server (e.g. monitoring.company.com or 1.2.3.4): " DOMAIN
+  read -p "Admin email: " ADMIN_EMAIL
+
+  ADMIN_PASSWORD=$(openssl rand -base64 16 | tr -d '=+/')
+  JWT_SECRET=$(openssl rand -hex 32)
+  DB_PASSWORD=$(openssl rand -hex 16)
+
+  echo -e "${YELLOW}Setting up KubeWatch ERP in ~/kubewatch-erp/ ...${NC}"
+  mkdir -p ~/kubewatch-erp
+  cd ~/kubewatch-erp
+
+  # Download production compose file
+  echo "Downloading docker-compose.yml..."
+  curl -fsSL https://releases.kubewatch.io/docker-compose.selfhost.yml -o docker-compose.yml
+
+  # Write .env file
+  cat > .env << EOF
+KUBEWATCH_MODE=selfhosted
+KUBEWATCH_LICENSE_KEY=${LICENSE_KEY}
+DOMAIN=${DOMAIN}
+ADMIN_EMAIL=${ADMIN_EMAIL}
+ADMIN_PASSWORD=${ADMIN_PASSWORD}
+JWT_SECRET=${JWT_SECRET}
+DB_PASSWORD=${DB_PASSWORD}
+EOF
+
+  # Write Caddyfile
+  cat > Caddyfile << EOF
 ${DOMAIN} {
-    reverse_proxy /api/* backend:8080 {
-        lb_try_duration 30s
-        lb_try_interval 500ms
-    }
-    reverse_proxy /ws backend:8080 {
-        lb_try_duration 30s
-        lb_try_interval 500ms
-    }
-    reverse_proxy /* frontend:3000 {
-        lb_try_duration 30s
-        lb_try_interval 500ms
-    }
-
-    header {
-        Strict-Transport-Security "max-age=31536000; includeSubDomains"
-        X-Content-Type-Options    "nosniff"
-        X-Frame-Options           "SAMEORIGIN"
-    }
-
-    encode gzip
+    reverse_proxy gateway:8000
 }
 EOF
 
-# HTTP-only override for bare IP addresses
-if [[ "$PROTOCOL" == "http" ]]; then
-    cat > Caddyfile <<EOF
-:80 {
-    reverse_proxy /api/* backend:8080 {
-        lb_try_duration 30s
-        lb_try_interval 500ms
-    }
-    reverse_proxy /ws backend:8080 {
-        lb_try_duration 30s
-        lb_try_interval 500ms
-    }
-    reverse_proxy /* frontend:3000 {
-        lb_try_duration 30s
-        lb_try_interval 500ms
-    }
+  echo "Pulling images..."
+  docker compose pull
+  echo "Starting services..."
+  docker compose up -d
 
-    encode gzip
+  # Wait for health
+  echo -n "Waiting for services to be ready"
+  for i in $(seq 1 30); do
+    if curl -sf http://localhost:8000/health > /dev/null 2>&1; then
+      echo ""
+      break
+    fi
+    echo -n "."
+    sleep 2
+  done
+
+  print_summary
 }
-EOF
-fi
 
-info "Caddyfile written"
+print_summary() {
+  echo ""
+  echo -e "${GREEN}"
+  echo "╔═════════════════════════════════════════════════════════╗"
+  echo "║              KubeWatch ERP is running!                  ║"
+  echo "╠═════════════════════════════════════════════════════════╣"
+  printf "║  URL:       http://%-37s║\n" "${DOMAIN}"
+  printf "║  Email:     %-40s║\n" "${ADMIN_EMAIL}"
+  printf "║  Password:  %-40s║\n" "${ADMIN_PASSWORD}"
+  echo "╠═════════════════════════════════════════════════════════╣"
+  echo "║  IMPORTANT: Save this password. Change it after login.  ║"
+  echo "║  To add agents, use the API key shown in Settings.      ║"
+  echo "╚═════════════════════════════════════════════════════════╝"
+  echo -e "${NC}"
+}
 
-# ── Pull images and start ──────────────────────────────────────────────────────
+main() {
+  print_banner
+  echo "Deployment mode:"
+  echo "  1) Connect to kubewatch.io (SaaS agent only)"
+  echo "  2) Self-Hosted ERP (run everything locally)"
+  echo ""
+  read -p "Select [1/2]: " MODE_CHOICE
 
-echo ""
-info "Pulling KubeWatch images…"
-docker compose -f "$COMPOSE_FILE" --env-file .env pull
+  case "$MODE_CHOICE" in
+    1) install_agent_only ;;
+    2) install_self_hosted_erp ;;
+    *) echo -e "${RED}Invalid choice. Please select 1 or 2.${NC}"; exit 1 ;;
+  esac
+}
 
-echo ""
-info "Starting KubeWatch ERP…"
-docker compose -f "$COMPOSE_FILE" --env-file .env up -d
-
-echo ""
-echo -e "${GREEN}${BOLD}"
-echo "  ┌─────────────────────────────────────────────────────────────────┐"
-echo "  │                   KubeWatch is running                          │"
-echo "  ├─────────────────────────────────────────────────────────────────┤"
-printf "  │  URL              %-48s│\n" "${PROTOCOL}://${DOMAIN}"
-printf "  │  Admin email      %-48s│\n" "$(get_env ADMIN_EMAIL)"
-printf "  │  Admin password   %-48s│\n" "$(get_env ADMIN_PASSWORD)"
-printf "  │  Agent API key    %-48s│\n" "$(get_env KUBEWATCH_API_KEY)"
-echo "  ├─────────────────────────────────────────────────────────────────┤"
-echo "  │  IMPORTANT: Change the default password after first login.       │"
-echo "  │  Settings → Users → edit your account.                          │"
-echo "  └─────────────────────────────────────────────────────────────────┘"
-echo -e "${NC}"
-echo "  Logs:    docker compose -f ${INSTALL_DIR}/${COMPOSE_FILE} logs -f"
-echo "  Stop:    docker compose -f ${INSTALL_DIR}/${COMPOSE_FILE} down"
-echo "  Restart: docker compose -f ${INSTALL_DIR}/${COMPOSE_FILE} restart"
-echo ""
+main

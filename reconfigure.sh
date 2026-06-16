@@ -1,84 +1,45 @@
-#!/bin/sh
-# KubeWatch — Domain reconfigure watcher
-# Runs inside the 'reconfigure' container every 30 s.
-# Reads DOMAIN from /config/.env; if it differs from the current Caddyfile,
-# rewrites /config/Caddyfile. Caddy's --watch flag picks up the change
-# automatically and provisions a TLS certificate when a real domain is set.
-CADDYFILE=/config/Caddyfile
-ENV_FILE=/config/.env
+#!/bin/bash
+# chmod +x reconfigure.sh
+# Usage: ./reconfigure.sh --domain new.example.com [--email new@example.com]
+# Updates .env and restarts affected services without a full reinstall.
+set -euo pipefail
 
-write_http() {
-  cat > "$CADDYFILE" <<'EOF'
-:80 {
-    reverse_proxy /api/* backend:8080 {
-        lb_try_duration 30s
-        lb_try_interval 500ms
-    }
-    reverse_proxy /ws backend:8080 {
-        lb_try_duration 30s
-        lb_try_interval 500ms
-    }
-    reverse_proxy /* frontend:3000 {
-        lb_try_duration 30s
-        lb_try_interval 500ms
-    }
-    encode gzip
-}
-EOF
-}
+DOMAIN=""
+EMAIL=""
 
-write_https() {
-  local domain="$1"
-  cat > "$CADDYFILE" <<EOF
-${domain} {
-    reverse_proxy /api/* backend:8080 {
-        lb_try_duration 30s
-        lb_try_interval 500ms
-    }
-    reverse_proxy /ws backend:8080 {
-        lb_try_duration 30s
-        lb_try_interval 500ms
-    }
-    reverse_proxy /* frontend:3000 {
-        lb_try_duration 30s
-        lb_try_interval 500ms
-    }
-    header {
-        Strict-Transport-Security "max-age=31536000; includeSubDomains"
-        X-Content-Type-Options    "nosniff"
-        X-Frame-Options           "SAMEORIGIN"
-    }
-    encode gzip
-}
-EOF
-}
-
-echo "[reconfigure] Starting — checking every 30 s"
-
-while true; do
-  DOMAIN=$(grep '^DOMAIN=' "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '\r\n ' || true)
-
-  if [ -n "$DOMAIN" ]; then
-    # Determine what the first line of the Caddyfile should be
-    if echo "$DOMAIN" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
-      TARGET=":80"
-    else
-      TARGET="$DOMAIN"
-    fi
-
-    # Read what the current Caddyfile starts with (strip trailing space and brace)
-    CURRENT=$(head -1 "$CADDYFILE" 2>/dev/null | sed 's/ {$//' | tr -d ' ' || true)
-
-    if [ "$TARGET" != "$CURRENT" ]; then
-      echo "[reconfigure] Domain changed: '$CURRENT' -> '$TARGET'"
-      if [ "$TARGET" = ":80" ]; then
-        write_http
-      else
-        write_https "$DOMAIN"
-      fi
-      echo "[reconfigure] Caddyfile updated. Caddy will reload automatically."
-    fi
-  fi
-
-  sleep 30
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --domain) DOMAIN="$2"; shift 2 ;;
+    --email)  EMAIL="$2";  shift 2 ;;
+    *) echo "Unknown option: $1"; exit 1 ;;
+  esac
 done
+
+INSTALL_DIR="${HOME}/kubewatch-erp"
+
+if [ ! -f "${INSTALL_DIR}/.env" ]; then
+  echo "Error: KubeWatch not installed at ${INSTALL_DIR}"
+  exit 1
+fi
+
+cd "${INSTALL_DIR}"
+
+if [ -n "$DOMAIN" ]; then
+  # Update DOMAIN in .env (create .bak backup first)
+  sed -i.bak "s/^DOMAIN=.*/DOMAIN=${DOMAIN}/" .env
+  # Regenerate Caddyfile with the new domain
+  cat > Caddyfile << EOF
+${DOMAIN} {
+    reverse_proxy gateway:8000
+}
+EOF
+  echo "Updated domain to: ${DOMAIN}"
+  docker compose restart caddy
+fi
+
+if [ -n "$EMAIL" ]; then
+  sed -i.bak "s/^ADMIN_EMAIL=.*/ADMIN_EMAIL=${EMAIL}/" .env
+  echo "Updated admin email to: ${EMAIL}"
+fi
+
+echo "Reconfiguration complete."
