@@ -76,7 +76,6 @@ install_self_hosted_erp() {
   check_prerequisites
 
   echo ""
-  read -p "License key (from your purchase email): " LICENSE_KEY </dev/tty
   read -p "Domain or IP for this server (e.g. monitoring.company.com or 1.2.3.4): " DOMAIN </dev/tty
   read -p "Admin email: " ADMIN_EMAIL </dev/tty
 
@@ -85,7 +84,7 @@ install_self_hosted_erp() {
   DB_PASSWORD=$(openssl rand -hex 16)
 
   echo -e "${YELLOW}Setting up KubeWatch ERP in ~/kubewatch-erp/ ...${NC}"
-  mkdir -p ~/kubewatch-erp
+  mkdir -p ~/kubewatch-erp ~/kubewatch-erp/data
   cd ~/kubewatch-erp
 
   # Download production compose file
@@ -93,9 +92,10 @@ install_self_hosted_erp() {
   curl -fsSL https://releases.kubewatch.io/docker-compose.selfhost.yml -o docker-compose.yml
 
   # Write .env file
+  # KUBEWATCH_LICENSE_KEY is intentionally absent — a 14-day trial starts automatically.
+  # After purchase, add KUBEWATCH_LICENSE_KEY=<your-key> here and restart.
   cat > .env << EOF
 KUBEWATCH_MODE=selfhosted
-KUBEWATCH_LICENSE_KEY=${LICENSE_KEY}
 DOMAIN=${DOMAIN}
 ADMIN_EMAIL=${ADMIN_EMAIL}
 ADMIN_PASSWORD=${ADMIN_PASSWORD}
@@ -139,8 +139,9 @@ print_summary() {
   printf "║  Email:     %-40s║\n" "${ADMIN_EMAIL}"
   printf "║  Password:  %-40s║\n" "${ADMIN_PASSWORD}"
   echo "╠═════════════════════════════════════════════════════════╣"
+  echo "║  14-day free trial started. No license key required.    ║"
+  echo "║  To purchase a license: Settings → Billing in the UI.  ║"
   echo "║  IMPORTANT: Save this password. Change it after login.  ║"
-  echo "║  To add agents, use the API key shown in Settings.      ║"
   echo "╚═════════════════════════════════════════════════════════╝"
   echo -e "${NC}"
 }
