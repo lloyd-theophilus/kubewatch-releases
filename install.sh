@@ -52,8 +52,8 @@ check_prerequisites() {
 
 install_agent_only() {
   echo ""
-  read -p "KubeWatch API key (from app.kubewatch.io): " API_KEY
-  read -p "Agent name (e.g. 'Production Server'): " AGENT_NAME
+  read -p "KubeWatch API key (from app.kubewatch.io): " API_KEY </dev/tty
+  read -p "Agent name (e.g. 'Production Server'): " AGENT_NAME </dev/tty
 
   echo -e "${YELLOW}Deploying KubeWatch agent...${NC}"
   docker run -d \
@@ -76,9 +76,9 @@ install_self_hosted_erp() {
   check_prerequisites
 
   echo ""
-  read -p "License key (from your purchase email): " LICENSE_KEY
-  read -p "Domain or IP for this server (e.g. monitoring.company.com or 1.2.3.4): " DOMAIN
-  read -p "Admin email: " ADMIN_EMAIL
+  read -p "License key (from your purchase email): " LICENSE_KEY </dev/tty
+  read -p "Domain or IP for this server (e.g. monitoring.company.com or 1.2.3.4): " DOMAIN </dev/tty
+  read -p "Admin email: " ADMIN_EMAIL </dev/tty
 
   ADMIN_PASSWORD=$(openssl rand -base64 16 | tr -d '=+/')
   JWT_SECRET=$(openssl rand -hex 32)
@@ -151,7 +151,7 @@ main() {
   echo "  1) Connect to kubewatch.io (SaaS agent only)"
   echo "  2) Self-Hosted ERP (run everything locally)"
   echo ""
-  read -p "Select [1/2]: " MODE_CHOICE
+  read -p "Select [1/2]: " MODE_CHOICE </dev/tty
 
   case "$MODE_CHOICE" in
     1) install_agent_only ;;
