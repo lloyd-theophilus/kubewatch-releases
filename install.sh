@@ -52,14 +52,14 @@ check_prerequisites() {
 
 install_agent_only() {
   echo ""
-  read -p "KubeWatch API key (from app.kubewatch.io): " API_KEY </dev/tty
+  read -p "KubeWatch API key (from app.kubewatchlabs.com): " API_KEY </dev/tty
   read -p "Agent name (e.g. 'Production Server'): " AGENT_NAME </dev/tty
 
   echo -e "${YELLOW}Deploying KubeWatch agent...${NC}"
   docker run -d \
     --name kubewatch-agent \
     --restart unless-stopped \
-    -e KUBEWATCH_SERVER_URL=https://api.kubewatch.io \
+    -e KUBEWATCH_SERVER_URL=https://api.kubewatchlabs.com \
     -e KUBEWATCH_API_KEY="$API_KEY" \
     -e KUBEWATCH_AGENT_NAME="$AGENT_NAME" \
     -v /var/run/docker.sock:/var/run/docker.sock:ro \
@@ -69,7 +69,7 @@ install_agent_only() {
   echo ""
   echo -e "${GREEN}Agent deployed!${NC}"
   echo "   It will appear in your dashboard within 30 seconds."
-  echo "   Dashboard: https://app.kubewatch.io"
+  echo "   Dashboard: https://app.kubewatchlabs.com"
 }
 
 install_self_hosted_erp() {
@@ -89,7 +89,7 @@ install_self_hosted_erp() {
 
   # Download production compose file
   echo "Downloading docker-compose.yml..."
-  curl -fsSL https://releases.kubewatch.io/docker-compose.selfhost.yml -o docker-compose.yml
+  curl -fsSL https://raw.githubusercontent.com/lloyd-theophilus/kubewatch-releases/main/docker-compose.yml -o docker-compose.yml
 
   # Write .env file
   # KUBEWATCH_LICENSE_KEY is intentionally absent — a 14-day trial starts automatically.
@@ -149,7 +149,7 @@ print_summary() {
 main() {
   print_banner
   echo "Deployment mode:"
-  echo "  1) Connect to kubewatch.io (SaaS agent only)"
+  echo "  1) Connect to kubewatchlabs.com (SaaS agent only)"
   echo "  2) Self-Hosted ERP (run everything locally)"
   echo ""
   read -p "Select [1/2]: " MODE_CHOICE </dev/tty
