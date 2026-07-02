@@ -59,7 +59,6 @@ install_agent_only() {
   docker run -d \
     --name kubewatch-agent \
     --restart unless-stopped \
-    -e KUBEWATCH_SERVER_URL=https://api.kubewatchlabs.com \
     -e KUBEWATCH_API_KEY="$API_KEY" \
     -e KUBEWATCH_AGENT_NAME="$AGENT_NAME" \
     -v /var/run/docker.sock:/var/run/docker.sock:ro \
