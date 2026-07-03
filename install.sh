@@ -116,6 +116,13 @@ ADMIN_EMAIL=${ADMIN_EMAIL}
 ADMIN_PASSWORD=${ADMIN_PASSWORD}
 JWT_SECRET=${JWT_SECRET}
 DB_PASSWORD=${DB_PASSWORD}
+
+# ── Connecting agents ────────────────────────────────────────────────
+# The platform itself does not need an API key. Once it's running, log in
+# and create an API key under Settings -> API Keys, then use it as
+# KUBEWATCH_API_KEY when you deploy an agent (see the docs). If you deploy
+# an agent alongside this stack, set it here:
+# KUBEWATCH_API_KEY=
 EOF
 
   # Write Caddyfile. API, auth and WebSocket traffic goes to the gateway;
