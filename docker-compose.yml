@@ -1,279 +1,78 @@
-version: "3.9"
 services:
   caddy:
-    image: public.ecr.aws/docker/library/caddy:2-alpine
+    image: caddy:2-alpine
+    # --watch tells Caddy to reload automatically when Caddyfile changes on disk.
+    # The reconfigure service updates Caddyfile when DOMAIN changes in .env.
+    command: caddy run --config /etc/caddy/Caddyfile --adapter caddyfile --watch
     ports:
       - "80:80"
       - "443:443"
+      - "443:443/udp"
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile
-      - caddy_data:/data
-    restart: unless-stopped
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
     depends_on:
-      - gateway
-
-  gateway:
-    image: ghcr.io/lloyd-theophilus/kubewatch-gateway:latest
-    environment:
-      GATEWAY_PORT: "8000"
-      KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
-      AUTH_SERVICE_URL: http://auth:8001
-      INGESTION_SERVICE_URL: http://ingestion:8002
-      QUERY_SERVICE_URL: http://query:8003
-      TENANT_MGMT_SERVICE_URL: http://tenant-mgmt:8004
-      BILLING_SERVICE_URL: http://billing:8006
-      LIVE_DATA_SERVICE_URL: http://live-data:8009
-      CLUSTERS_SERVICE_URL: http://clusters:8008
-      CLOUD_SERVICE_URL: http://cloud:8010
-      INTEGRATIONS_SERVICE_URL: http://integrations:8011
-      JWT_SECRET: ${JWT_SECRET}
-      LICENSE_PUBLIC_KEY: ${LICENSE_PUBLIC_KEY:-}
-    restart: unless-stopped
-    depends_on:
-      - auth
-      - ingestion
-      - query
-
-  auth:
-    image: ghcr.io/lloyd-theophilus/kubewatch-auth:latest
-    environment:
-      AUTH_PORT: "8001"
-      KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
-      KUBEWATCH_LICENSE_KEY: ${KUBEWATCH_LICENSE_KEY}
-      LICENSE_PUBLIC_KEY: ${LICENSE_PUBLIC_KEY:-}
-      DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=disable
-      JWT_SECRET: ${JWT_SECRET}
-      JWT_EXPIRY: "24h"
-      ADMIN_EMAIL: ${ADMIN_EMAIL}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
-      # External origin used to build SAML SSO SP URLs (ACS / EntityID).
-      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
-      DOMAIN: ${DOMAIN:-}
-      NATS_URL: nats://nats:4222
-    restart: unless-stopped
-    depends_on:
-      postgres:
+      backend:
         condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
-      nats:
-        condition: service_started
-
-  ingestion:
-    image: ghcr.io/lloyd-theophilus/kubewatch-ingestion:latest
-    environment:
-      INGESTION_PORT: "8002"
-      KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
-      DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=disable
-      NATS_URL: nats://nats:4222
-      VICTORIAMETRICS_INSERT_URL: http://victoriametrics:8428
-      AUTH_SERVICE_URL: http://auth:8001
-    restart: unless-stopped
-    depends_on:
-      postgres:
+      frontend:
         condition: service_healthy
-      nats:
-        condition: service_started
+    restart: unless-stopped
 
-  query:
-    image: ghcr.io/lloyd-theophilus/kubewatch-query:latest
-    environment:
-      QUERY_PORT: "8003"
-      KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
-      APP_VERSION: ${APP_VERSION:-dev}
-      DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=disable
-      VICTORIAMETRICS_SELECT_URL: http://victoriametrics:8428
-      VICTORIAMETRICS_INSERT_URL: http://victoriametrics:8428
-      NATS_URL: nats://nats:4222
-      LICENSE_SERVER_URL: ${LICENSE_SERVER_URL:-https://licenses.kubewatchlabs.com}
-      # In-app "Update Now" runs `docker compose pull && up -d` from a detached
-      # updater container. COMPOSE_DIR is the host path of this project so the
-      # updater can bind-mount it; ${PWD} resolves to where compose was invoked.
-      COMPOSE_DIR: ${PWD}
-      COMPOSE_FILE: ${COMPOSE_FILE:-docker-compose.yml}
-      COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-}
-    # Docker socket: System Health reads container state; "Update Now" launches
-    # the updater container through it.
+  reconfigure:
+    image: alpine:3.19
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      - ./.env:/config/.env:ro
+      - ./Caddyfile:/config/Caddyfile
+      - ./reconfigure.sh:/reconfigure.sh:ro
+    command: sh /reconfigure.sh
     restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
 
-  alert-engine:
-    image: ghcr.io/lloyd-theophilus/kubewatch-alert-engine:latest
+  backend:
+    image: ghcr.io/lloyd-theophilus/kubewatch-backend:latest
     environment:
-      ALERT_ENGINE_PORT: "8005"
-      KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
-      DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=disable
-      VICTORIAMETRICS_SELECT_URL: http://victoriametrics:8428
-      NATS_URL: nats://nats:4222
-      EVAL_INTERVAL: "30s"
-    restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
-      nats:
-        condition: service_started
-
-  scaling-engine:
-    image: ghcr.io/lloyd-theophilus/kubewatch-scaling-engine:latest
-    environment:
-      SCALING_ENGINE_PORT: "8012"
-      KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
-      DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=disable
-      VICTORIAMETRICS_SELECT_URL: http://victoriametrics:8428
-      NATS_URL: nats://nats:4222
-      SCALE_INTERVAL: "30s"
-    restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
-      nats:
-        condition: service_started
-
-  notification:
-    image: ghcr.io/lloyd-theophilus/kubewatch-notification:latest
-    environment:
-      NOTIFICATION_PORT: "8007"
-      KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
-      DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=disable
-      NATS_URL: nats://nats:4222
-      SMTP_HOST: ${SMTP_HOST:-}
-      SMTP_PORT: ${SMTP_PORT:-587}
-      SMTP_USER: ${SMTP_USER:-}
-      SMTP_PASS: ${SMTP_PASS:-}
-    restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
-      nats:
-        condition: service_started
-
-  live-data:
-    image: ghcr.io/lloyd-theophilus/kubewatch-live-data:latest
-    environment:
-      PORT: "8009"
-      KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
-      DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=disable
-      NATS_URL: nats://nats:4222
-      AUTH_SERVICE_URL: http://auth:8001
-    restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
-      nats:
-        condition: service_started
-
-  clusters:
-    image: ghcr.io/lloyd-theophilus/kubewatch-clusters:latest
-    environment:
-      PORT: "8008"
-      KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
-      DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=disable
+      PORT: "8080"
+      DB_PATH: "/data/kubewatch.db"
+      JWT_SECRET: "${JWT_SECRET}"
+      JWT_EXPIRY: "${JWT_EXPIRY:-24h}"
+      KUBEWATCH_API_KEY: "${KUBEWATCH_API_KEY}"
+      ADMIN_EMAIL: "${ADMIN_EMAIL:-admin@kubewatch.local}"
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:-admin1234}"
+      SMTP_HOST: "${SMTP_HOST:-}"
+      SMTP_PORT: "${SMTP_PORT:-587}"
+      SMTP_USER: "${SMTP_USER:-}"
+      SMTP_PASS: "${SMTP_PASS:-}"
+      SMTP_FROM: "${SMTP_FROM:-}"
+      ALERT_EMAIL_TO: "${ALERT_EMAIL_TO:-}"
+      SLACK_WEBHOOK_URL: "${SLACK_WEBHOOK_URL:-}"
+      UPDATE_CHECK_URL: "${UPDATE_CHECK_URL:-}"
     volumes:
-      - ~/.kube:/root/.kube:ro
+      - kubewatch-data:/data
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
     restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
-
-  cloud:
-    image: ghcr.io/lloyd-theophilus/kubewatch-cloud:latest
-    environment:
-      PORT: "8010"
-      KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
-      DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=disable
-    restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
-
-  integrations:
-    image: ghcr.io/lloyd-theophilus/kubewatch-integrations:latest
-    environment:
-      PORT: "8011"
-      KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
-      DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=disable
-    restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
 
   frontend:
     image: ghcr.io/lloyd-theophilus/kubewatch-frontend:latest
     environment:
-      API_BASE: http://gateway:8000
-      NEXT_PUBLIC_MODE: selfhosted
-      NEXT_PUBLIC_API_URL: http://${DOMAIN:-localhost}:8000
-    restart: unless-stopped
+      API_BASE: "http://backend:8080"
     depends_on:
-      - gateway
-
-  postgres:
-    image: public.ecr.aws/docker/library/postgres:16-alpine
-    environment:
-      POSTGRES_DB: kubewatch
-      POSTGRES_USER: kubewatch
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
+      backend:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U kubewatch"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/ || exit 1"]
       interval: 10s
       timeout: 5s
-      retries: 5
-    restart: unless-stopped
-
-  # One-shot schema migrator. Applies infra/migrations/*.sql (staged into
-  # ./migrations by the deploy job) on every `up`.
-  #
-  # The migration files are in goose format (-- +goose Up / -- +goose Down).
-  # psql does not understand those directives, so we strip everything from
-  # "-- +goose Down" onward and apply only the Up section — otherwise psql
-  # would run each Down block too and drop the tables it just created.
-  # Up sections use CREATE TABLE/COLUMN IF NOT EXISTS and ON CONFLICT, so
-  # re-running is safe. Services reading core tables wait for this to finish.
-  migrate:
-    image: public.ecr.aws/docker/library/postgres:16-alpine
-    environment:
-      PGPASSWORD: ${DB_PASSWORD}
-    volumes:
-      - ./migrations:/migrations:ro
-    entrypoint:
-      - sh
-      - -c
-      - |
-        echo "Applying database migrations…"
-        for f in /migrations/*.sql; do
-          echo ">> applying $$f (Up only)"
-          sed '/-- +goose Down/,$$d' "$$f" | psql -h postgres -U kubewatch -d kubewatch -v ON_ERROR_STOP=0 || true
-        done
-        echo "Migrations complete."
-    depends_on:
-      postgres:
-        condition: service_healthy
-    restart: "no"
-
-  victoriametrics:
-    image: victoriametrics/victoria-metrics:latest
-    command:
-      - -retentionPeriod=365d
-      - -storageDataPath=/victoria-metrics-data
-    volumes:
-      - vm_data:/victoria-metrics-data
-    restart: unless-stopped
-
-  nats:
-    image: public.ecr.aws/docker/library/nats:2-alpine
-    command: ["-js", "-sd", "/data"]
-    volumes:
-      - nats_data:/data
+      retries: 6
+      start_period: 20s
     restart: unless-stopped
 
 volumes:
-  postgres_data:
-  vm_data:
-  nats_data:
-  caddy_data:
+  kubewatch-data:
+  caddy-data:
+  caddy-config:
