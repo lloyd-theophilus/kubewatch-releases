@@ -39,7 +39,7 @@ services:
     environment:
       AUTH_PORT: "8001"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
-      KUBEWATCH_LICENSE_KEY: ${KUBEWATCH_LICENSE_KEY}
+      KUBEWATCH_LICENSE_KEY: ${KUBEWATCH_LICENSE_KEY:-}
       LICENSE_PUBLIC_KEY: ${LICENSE_PUBLIC_KEY:-}
       DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=disable
       JWT_SECRET: ${JWT_SECRET}
