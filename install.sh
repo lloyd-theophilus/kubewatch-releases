@@ -56,6 +56,16 @@ install_agent_only() {
   read -p "Agent name (e.g. 'Production Server'): " AGENT_NAME </dev/tty
 
   echo -e "${YELLOW}Deploying KubeWatch agent...${NC}"
+  echo "Pulling agent image..."
+  if ! docker pull ghcr.io/lloyd-theophilus/kubewatch-agent:latest; then
+    echo ""
+    echo -e "${RED}Failed to pull the KubeWatch agent image.${NC}"
+    echo "The agent image is public and requires no login, so an 'unauthorized' or"
+    echo "'denied' error is usually a transient registry or network issue. Check"
+    echo "outbound access to ghcr.io from this host and try again, or contact"
+    echo "support@kubewatchlabs.com."
+    exit 1
+  fi
   docker run -d \
     --name kubewatch-agent \
     --restart unless-stopped \
@@ -145,7 +155,19 @@ ${SITE} {
 EOF
 
   echo "Pulling images..."
-  docker compose pull
+  if ! docker compose pull; then
+    echo ""
+    echo -e "${RED}Failed to pull one or more KubeWatch images.${NC}"
+    echo "If you saw 'unauthorized' or 'denied' above, the registry rejected the pull."
+    echo "The KubeWatch container images are public and require no login, so this is"
+    echo "usually a transient registry or network issue. Try again in a moment:"
+    echo ""
+    echo "    cd ~/kubewatch-erp && docker compose pull && docker compose up -d"
+    echo ""
+    echo "If it persists, check outbound access to ghcr.io from this host, or contact"
+    echo "support@kubewatchlabs.com."
+    exit 1
+  fi
   echo "Starting services..."
   docker compose up -d
 
