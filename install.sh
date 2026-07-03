@@ -82,30 +82,58 @@ install_self_hosted_erp() {
   JWT_SECRET=$(openssl rand -hex 32)
   DB_PASSWORD=$(openssl rand -hex 16)
 
+  # A bare IP can't get a public TLS cert, serve plain HTTP; a real domain gets
+  # automatic HTTPS from Caddy.
+  if echo "${DOMAIN}" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+    SITE="http://${DOMAIN}"
+    BASE_URL="http://${DOMAIN}"
+  else
+    SITE="${DOMAIN}"
+    BASE_URL="https://${DOMAIN}"
+  fi
+
+  RELEASES="https://raw.githubusercontent.com/lloyd-theophilus/kubewatch-releases/main"
+
   echo -e "${YELLOW}Setting up KubeWatch ERP in ~/kubewatch-erp/ ...${NC}"
-  mkdir -p ~/kubewatch-erp ~/kubewatch-erp/data
+  mkdir -p ~/kubewatch-erp ~/kubewatch-erp/data ~/kubewatch-erp/migrations
   cd ~/kubewatch-erp
 
-  # Download production compose file
+  # Download the Compose file and the database migrations bundle.
   echo "Downloading docker-compose.yml..."
-  curl -fsSL https://raw.githubusercontent.com/lloyd-theophilus/kubewatch-releases/main/docker-compose.yml -o docker-compose.yml
+  curl -fsSL "${RELEASES}/docker-compose.yml" -o docker-compose.yml
+  echo "Downloading database migrations..."
+  curl -fsSL "${RELEASES}/migrations.tar.gz" -o migrations.tar.gz
+  tar -xzf migrations.tar.gz -C migrations && rm -f migrations.tar.gz
 
   # Write .env file
-  # KUBEWATCH_LICENSE_KEY is intentionally absent — a 14-day trial starts automatically.
+  # KUBEWATCH_LICENSE_KEY is intentionally absent — a 30-day trial starts automatically.
   # After purchase, add KUBEWATCH_LICENSE_KEY=<your-key> here and restart.
   cat > .env << EOF
 KUBEWATCH_MODE=selfhosted
 DOMAIN=${DOMAIN}
+PUBLIC_BASE_URL=${BASE_URL}
 ADMIN_EMAIL=${ADMIN_EMAIL}
 ADMIN_PASSWORD=${ADMIN_PASSWORD}
 JWT_SECRET=${JWT_SECRET}
 DB_PASSWORD=${DB_PASSWORD}
 EOF
 
-  # Write Caddyfile
+  # Write Caddyfile. API, auth and WebSocket traffic goes to the gateway;
+  # everything else (dashboard pages, assets) is served by the frontend.
   cat > Caddyfile << EOF
-${DOMAIN} {
-    reverse_proxy gateway:8000
+${SITE} {
+    handle /api/* {
+        reverse_proxy gateway:8000
+    }
+    handle /auth/* {
+        reverse_proxy gateway:8000
+    }
+    handle /ws* {
+        reverse_proxy gateway:8000
+    }
+    handle {
+        reverse_proxy frontend:3000
+    }
 }
 EOF
 
@@ -134,12 +162,14 @@ print_summary() {
   echo "╔═════════════════════════════════════════════════════════╗"
   echo "║              KubeWatch ERP is running!                  ║"
   echo "╠═════════════════════════════════════════════════════════╣"
-  printf "║  URL:       http://%-37s║\n" "${DOMAIN}"
+  printf "║  URL:       %-40s║\n" "${BASE_URL:-http://${DOMAIN}}"
   printf "║  Email:     %-40s║\n" "${ADMIN_EMAIL}"
   printf "║  Password:  %-40s║\n" "${ADMIN_PASSWORD}"
   echo "╠═════════════════════════════════════════════════════════╣"
-  echo "║  14-day free trial started. No license key required.    ║"
+  echo "║  30-day free trial started. No license key required.    ║"
   echo "║  To purchase a license: Settings → Billing in the UI.  ║"
+  echo "║  To connect agents: create an API key in the dashboard  ║"
+  echo "║  under Settings → API Keys, then deploy an agent.       ║"
   echo "║  IMPORTANT: Save this password. Change it after login.  ║"
   echo "╚═════════════════════════════════════════════════════════╝"
   echo -e "${NC}"
@@ -148,8 +178,12 @@ print_summary() {
 main() {
   print_banner
   echo "Deployment mode:"
-  echo "  1) Connect to kubewatchlabs.com (SaaS agent only)"
-  echo "  2) Self-Hosted ERP (run everything locally)"
+  echo "  1) Agent only: monitor THIS host using KubeWatch Cloud."
+  echo "     Pick this if you already have an account at app.kubewatchlabs.com."
+  echo "     It deploys just the agent and does NOT install the platform."
+  echo ""
+  echo "  2) Self-Hosted: install the full KubeWatch platform on this server."
+  echo "     Pick this to run everything yourself."
   echo ""
   read -p "Select [1/2]: " MODE_CHOICE </dev/tty
 
