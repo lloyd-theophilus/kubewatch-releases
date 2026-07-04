@@ -88,9 +88,23 @@ install_self_hosted_erp() {
   read -p "Domain or IP for this server (e.g. monitoring.company.com or 1.2.3.4): " DOMAIN </dev/tty
   read -p "Admin email: " ADMIN_EMAIL </dev/tty
 
-  ADMIN_PASSWORD=$(openssl rand -base64 16 | tr -d '=+/')
-  JWT_SECRET=$(openssl rand -hex 32)
-  DB_PASSWORD=$(openssl rand -hex 16)
+  # Re-running the installer over an existing deployment must NOT regenerate
+  # DB_PASSWORD or JWT_SECRET. Postgres only sets its password when the data
+  # volume is first initialized, so a fresh DB_PASSWORD would fail to
+  # authenticate against the existing volume (every service crash-loops with
+  # "password authentication failed"), and a new JWT_SECRET would invalidate
+  # all sessions. Preserve whatever the existing .env has; generate only what's
+  # missing (first install).
+  ENV_FILE="${HOME}/kubewatch-erp/.env"
+  if [ -f "${ENV_FILE}" ]; then
+    ADMIN_PASSWORD=$(grep '^ADMIN_PASSWORD=' "${ENV_FILE}" | cut -d= -f2-)
+    JWT_SECRET=$(grep '^JWT_SECRET=' "${ENV_FILE}" | cut -d= -f2-)
+    DB_PASSWORD=$(grep '^DB_PASSWORD=' "${ENV_FILE}" | cut -d= -f2-)
+    REUSED_ENV=1
+  fi
+  ADMIN_PASSWORD="${ADMIN_PASSWORD:-$(openssl rand -base64 16 | tr -d '=+/')}"
+  JWT_SECRET="${JWT_SECRET:-$(openssl rand -hex 32)}"
+  DB_PASSWORD="${DB_PASSWORD:-$(openssl rand -hex 16)}"
 
   # A bare IP can't get a public TLS cert, serve plain HTTP; a real domain gets
   # automatic HTTPS from Caddy.
@@ -202,6 +216,12 @@ print_summary() {
   echo "║  IMPORTANT: Save this password. Change it after login.  ║"
   echo "╚═════════════════════════════════════════════════════════╝"
   echo -e "${NC}"
+  if [ "${REUSED_ENV:-0}" = "1" ]; then
+    echo "Note: an existing install was detected, so your original database"
+    echo "password and admin credentials were kept. If you already changed your"
+    echo "admin password in the dashboard, log in with that one (the value above"
+    echo "is the originally generated password)."
+  fi
   echo "Note: the 'kubewatch-erp-migrate-1' container will show 'Exited' — this is"
   echo "expected. It runs the database migrations once and stops; every other"
   echo "container keeps running. A stopped migrate container is not an error."
