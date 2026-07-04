@@ -129,6 +129,12 @@ install_self_hosted_erp() {
   curl -fsSL "${RELEASES}/migrations.tar.gz" -o migrations.tar.gz
   tar -xzf migrations.tar.gz -C migrations && rm -f migrations.tar.gz
 
+  # Stamp the installed version so the dashboard's System Health / update page
+  # shows a real version instead of "dev". Falls back to "latest" if the release
+  # marker isn't reachable.
+  APP_VERSION=$(curl -fsSL "${RELEASES}/VERSION" 2>/dev/null | tr -d '[:space:]')
+  APP_VERSION="${APP_VERSION:-latest}"
+
   # Write .env file
   # KUBEWATCH_LICENSE_KEY is intentionally absent — a 30-day trial starts automatically.
   # After purchase, add KUBEWATCH_LICENSE_KEY=<your-key> here and restart.
@@ -140,6 +146,7 @@ ADMIN_EMAIL=${ADMIN_EMAIL}
 ADMIN_PASSWORD=${ADMIN_PASSWORD}
 JWT_SECRET=${JWT_SECRET}
 DB_PASSWORD=${DB_PASSWORD}
+APP_VERSION=${APP_VERSION}
 
 # ── Connecting agents ────────────────────────────────────────────────
 # The platform itself does not need an API key. Once it's running, log in
