@@ -202,6 +202,9 @@ print_summary() {
   echo "║  IMPORTANT: Save this password. Change it after login.  ║"
   echo "╚═════════════════════════════════════════════════════════╝"
   echo -e "${NC}"
+  echo "Note: the 'kubewatch-erp-migrate-1' container will show 'Exited' — this is"
+  echo "expected. It runs the database migrations once and stops; every other"
+  echo "container keeps running. A stopped migrate container is not an error."
 }
 
 main() {
