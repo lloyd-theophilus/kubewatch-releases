@@ -1,5 +1,7 @@
 services:
   caddy:
+    security_opt:
+      - "no-new-privileges:true"
     image: public.ecr.aws/docker/library/caddy:2-alpine
     ports:
       - "80:80"
@@ -12,6 +14,8 @@ services:
       - gateway
 
   gateway:
+    security_opt:
+      - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-gateway:latest
     environment:
       GATEWAY_PORT: "8000"
@@ -37,6 +41,8 @@ services:
       - query
 
   auth:
+    security_opt:
+      - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-auth:latest
     environment:
       AUTH_PORT: "8001"
@@ -62,6 +68,8 @@ services:
         condition: service_started
 
   ingestion:
+    security_opt:
+      - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-ingestion:latest
     environment:
       INGESTION_PORT: "8002"
@@ -78,6 +86,8 @@ services:
         condition: service_started
 
   query:
+    security_opt:
+      - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-query:latest
     environment:
       QUERY_PORT: "8003"
@@ -104,6 +114,8 @@ services:
         condition: service_healthy
 
   alert-engine:
+    security_opt:
+      - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-alert-engine:latest
     environment:
       ALERT_ENGINE_PORT: "8005"
@@ -120,6 +132,8 @@ services:
         condition: service_started
 
   scaling-engine:
+    security_opt:
+      - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-scaling-engine:latest
     environment:
       SCALING_ENGINE_PORT: "8012"
@@ -136,6 +150,8 @@ services:
         condition: service_started
 
   notification:
+    security_opt:
+      - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-notification:latest
     environment:
       NOTIFICATION_PORT: "8007"
@@ -155,6 +171,8 @@ services:
         condition: service_started
 
   live-data:
+    security_opt:
+      - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-live-data:latest
     environment:
       PORT: "8009"
@@ -170,6 +188,8 @@ services:
         condition: service_started
 
   clusters:
+    security_opt:
+      - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-clusters:latest
     environment:
       PORT: "8008"
@@ -183,6 +203,8 @@ services:
         condition: service_healthy
 
   cloud:
+    security_opt:
+      - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-cloud:latest
     environment:
       PORT: "8010"
@@ -194,6 +216,8 @@ services:
         condition: service_healthy
 
   integrations:
+    security_opt:
+      - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-integrations:latest
     environment:
       PORT: "8011"
@@ -205,6 +229,8 @@ services:
         condition: service_healthy
 
   frontend:
+    security_opt:
+      - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-frontend:latest
     environment:
       API_BASE: http://gateway:8000
@@ -215,6 +241,8 @@ services:
       - gateway
 
   postgres:
+    security_opt:
+      - "no-new-privileges:true"
     image: public.ecr.aws/docker/library/postgres:16-alpine
     environment:
       POSTGRES_DB: kubewatch
@@ -239,6 +267,8 @@ services:
   # Up sections use CREATE TABLE/COLUMN IF NOT EXISTS and ON CONFLICT, so
   # re-running is safe. Services reading core tables wait for this to finish.
   migrate:
+    security_opt:
+      - "no-new-privileges:true"
     image: public.ecr.aws/docker/library/postgres:16-alpine
     environment:
       PGPASSWORD: ${DB_PASSWORD}
@@ -260,6 +290,8 @@ services:
     restart: "no"
 
   victoriametrics:
+    security_opt:
+      - "no-new-privileges:true"
     image: victoriametrics/victoria-metrics:latest
     command:
       - -retentionPeriod=365d
@@ -269,6 +301,8 @@ services:
     restart: unless-stopped
 
   nats:
+    security_opt:
+      - "no-new-privileges:true"
     image: public.ecr.aws/docker/library/nats:2-alpine
     command: ["-js", "-sd", "/data"]
     volumes:
