@@ -147,7 +147,7 @@ install_self_hosted_erp() {
   APP_VERSION="${APP_VERSION:-latest}"
 
   # Write .env file
-  # KUBEWATCH_LICENSE_KEY is intentionally absent — a 30-day trial starts automatically.
+  # KUBEWATCH_LICENSE_KEY is intentionally absent: a 30-day trial starts automatically.
   # After purchase, add KUBEWATCH_LICENSE_KEY=<your-key> here and restart.
   cat > .env << EOF
 KUBEWATCH_MODE=selfhosted
@@ -196,6 +196,13 @@ ${SITE} {
     }
 }
 EOF
+
+  # Restrict the files that carry secrets or reveal deployment internals to the
+  # owner only, so other accounts on the host can't read them. .env holds
+  # JWT_SECRET, DB_PASSWORD and any API keys; the compose file and Caddyfile
+  # expose the deployment layout. The docker compose CLI and the in-app updater
+  # run as the owner (or root), so 0600 does not affect normal operation.
+  chmod 600 .env docker-compose.yml Caddyfile 2>/dev/null || true
 
   echo "Pulling images..."
   if ! docker compose pull; then
@@ -251,7 +258,7 @@ print_summary() {
     echo "admin password in the dashboard, log in with that one (the value above"
     echo "is the originally generated password)."
   fi
-  echo "Note: the 'kubewatch-erp-migrate-1' container will show 'Exited' — this is"
+  echo "Note: the 'kubewatch-erp-migrate-1' container will show 'Exited', this is"
   echo "expected. It runs the database migrations once and stops; every other"
   echo "container keeps running. A stopped migrate container is not an error."
 }
