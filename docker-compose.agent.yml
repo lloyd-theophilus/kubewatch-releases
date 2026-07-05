@@ -1,10 +1,10 @@
-# KubeWatch monitoring agent — standalone Docker Compose reference.
+# KubeWatch monitoring agent: standalone Docker Compose reference.
 #
 # Deploys a single agent that monitors THIS Docker host and reports to KubeWatch.
 #
 # Setup (the DOCKER_GID line auto-detects the host's docker group):
 #   1. Create an API key in your KubeWatch dashboard: Settings -> API Keys.
-#      (Use the API key — a "kw..." value — NOT a "kwl_ent_" license key.)
+#      (Use the API key, a "kw..." value, NOT a "kwl_ent_" license key.)
 #   2. Write a .env file next to this compose file:
 #        printf 'KUBEWATCH_API_KEY=%s\nKUBEWATCH_SERVER_URL=%s\nKUBEWATCH_AGENT_NAME=%s\nDOCKER_GID=%s\n' \
 #          "<your API key>" "https://your-kubewatch-host" "$(hostname)" \
@@ -20,14 +20,16 @@
 #     fills DOCKER_GID in automatically via `stat -c '%g' /var/run/docker.sock`.
 #     If you can't determine it, remove the `group_add` block and add `user: "0:0"`.
 #   - Do NOT combine `env_file` with an `environment:` entry for the same variable
-#     — `environment` wins and an empty value there will blank out the env_file one.
+#     `environment` wins and an empty value there will blank out the env_file one.
 
 services:
   kubewatch-agent:
     image: ghcr.io/lloyd-theophilus/kubewatch-agent:latest
     restart: unless-stopped
     environment:
-      KUBEWATCH_SERVER_URL: "${KUBEWATCH_SERVER_URL:-https://api.kubewatchlabs.com}"
+      # Set to your KubeWatch host. Leave unset for KubeWatch Cloud (the agent
+      # ships with the hosted endpoint built in).
+      KUBEWATCH_SERVER_URL: "${KUBEWATCH_SERVER_URL:-}"
       KUBEWATCH_API_KEY: "${KUBEWATCH_API_KEY}"
       KUBEWATCH_AGENT_NAME: "${KUBEWATCH_AGENT_NAME:-}"
     group_add:
