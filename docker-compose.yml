@@ -20,7 +20,6 @@ services:
       INGESTION_SERVICE_URL: http://ingestion:8002
       QUERY_SERVICE_URL: http://query:8003
       TENANT_MGMT_SERVICE_URL: http://tenant-mgmt:8004
-      BILLING_SERVICE_URL: http://billing:8006
       LIVE_DATA_SERVICE_URL: http://live-data:8009
       CLUSTERS_SERVICE_URL: http://clusters:8008
       CLOUD_SERVICE_URL: http://cloud:8010
