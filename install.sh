@@ -66,9 +66,20 @@ install_agent_only() {
     echo "support@kubewatchlabs.com."
     exit 1
   fi
+  # The agent image runs as a non-root user, but /var/run/docker.sock is owned by
+  # root:docker. Grant the container the socket's group so it can read the Docker
+  # API without running as root. Fall back to root if the socket group can't be
+  # determined (e.g. rootless Docker).
+  DOCKER_GID=$(stat -c '%g' /var/run/docker.sock 2>/dev/null || echo "")
+  if [ -n "$DOCKER_GID" ]; then
+    GROUP_FLAG=(--group-add "$DOCKER_GID")
+  else
+    GROUP_FLAG=(--user 0:0)
+  fi
   docker run -d \
     --name kubewatch-agent \
     --restart unless-stopped \
+    "${GROUP_FLAG[@]}" \
     -e KUBEWATCH_API_KEY="$API_KEY" \
     -e KUBEWATCH_AGENT_NAME="$AGENT_NAME" \
     -v /var/run/docker.sock:/var/run/docker.sock:ro \
