@@ -2,14 +2,13 @@
 #
 # Deploys a single agent that monitors THIS Docker host and reports to KubeWatch.
 #
-# Setup:
+# Setup (the DOCKER_GID line auto-detects the host's docker group):
 #   1. Create an API key in your KubeWatch dashboard: Settings -> API Keys.
 #      (Use the API key — a "kw..." value — NOT a "kwl_ent_" license key.)
-#   2. Create a .env file next to this compose file:
-#        KUBEWATCH_API_KEY=<your API key>
-#        KUBEWATCH_SERVER_URL=https://your-kubewatch-host   # your dashboard/gateway
-#        KUBEWATCH_AGENT_NAME=my-host                       # optional label
-#        DOCKER_GID=<host docker group id>                  # see note below
+#   2. Write a .env file next to this compose file:
+#        printf 'KUBEWATCH_API_KEY=%s\nKUBEWATCH_SERVER_URL=%s\nKUBEWATCH_AGENT_NAME=%s\nDOCKER_GID=%s\n' \
+#          "<your API key>" "https://your-kubewatch-host" "$(hostname)" \
+#          "$(stat -c '%g' /var/run/docker.sock)" > .env
 #   3. docker compose -f docker-compose.agent.yml up -d
 #
 # Notes:
@@ -17,9 +16,9 @@
 #     install use http://<ip>; for KubeWatch Cloud leave the default.
 #   - The agent runs as a non-root user, but /var/run/docker.sock is owned by
 #     root:docker. `group_add` grants the container the host's docker group so it
-#     can read the (read-only) socket without running as root. Find the GID with:
-#         stat -c '%g' /var/run/docker.sock
-#     If you cannot determine it, remove the `group_add` block and add `user: "0:0"`.
+#     can read the (read-only) socket without running as root. The step-2 command
+#     fills DOCKER_GID in automatically via `stat -c '%g' /var/run/docker.sock`.
+#     If you can't determine it, remove the `group_add` block and add `user: "0:0"`.
 #   - Do NOT combine `env_file` with an `environment:` entry for the same variable
 #     — `environment` wins and an empty value there will blank out the env_file one.
 
