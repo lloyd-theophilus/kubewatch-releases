@@ -117,14 +117,23 @@ install_self_hosted_erp() {
   JWT_SECRET="${JWT_SECRET:-$(openssl rand -hex 32)}"
   DB_PASSWORD="${DB_PASSWORD:-$(openssl rand -hex 16)}"
 
-  # A bare IP can't get a public TLS cert, serve plain HTTP; a real domain gets
-  # automatic HTTPS from Caddy.
+  # A bare IP can't get a public TLS cert (served over plain HTTP); a real domain
+  # gets automatic HTTPS. Caddy is also set up for on-demand TLS (see the
+  # Caddyfile below), so pointing a domain at this host's IP LATER auto-provisions
+  # a certificate on the first HTTPS request, with no reinstall.
   if echo "${DOMAIN}" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
-    SITE="http://${DOMAIN}"
     BASE_URL="http://${DOMAIN}"
   else
-    SITE="${DOMAIN}"
     BASE_URL="https://${DOMAIN}"
+  fi
+
+  # Public IP of this host, used by the on-demand TLS gate: Caddy asks the gateway
+  # whether to obtain a cert for an incoming domain, and the gateway only says yes
+  # when the domain resolves to this IP. Detected via an external echo service;
+  # falls back to DOMAIN when that is already a bare IP.
+  SERVER_PUBLIC_IP=$(curl -fsSL https://api.ipify.org 2>/dev/null || true)
+  if [ -z "${SERVER_PUBLIC_IP}" ] && echo "${DOMAIN}" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+    SERVER_PUBLIC_IP="${DOMAIN}"
   fi
 
   RELEASES="https://raw.githubusercontent.com/lloyd-theophilus/kubewatch-releases/main"
@@ -153,6 +162,7 @@ install_self_hosted_erp() {
 KUBEWATCH_MODE=selfhosted
 DOMAIN=${DOMAIN}
 PUBLIC_BASE_URL=${BASE_URL}
+SERVER_PUBLIC_IP=${SERVER_PUBLIC_IP}
 ADMIN_EMAIL=${ADMIN_EMAIL}
 ADMIN_PASSWORD=${ADMIN_PASSWORD}
 JWT_SECRET=${JWT_SECRET}
@@ -180,8 +190,22 @@ EOF
 
   # Write Caddyfile. API, auth and WebSocket traffic goes to the gateway;
   # everything else (dashboard pages, assets) is served by the frontend.
-  cat > Caddyfile << EOF
-${SITE} {
+  #
+  # Any host is served over HTTP on :80 (bare-IP access + ACME challenges) and
+  # over HTTPS on :443. HTTPS uses on-demand TLS: Caddy obtains a certificate
+  # during the first handshake for whatever domain is pointed at this host, gated
+  # by the gateway's /api/v1/tls-check (which only allows domains that resolve to
+  # SERVER_PUBLIC_IP). So a bare-IP install just works over HTTP today, and the
+  # moment you point a domain at this IP it gets HTTPS automatically, no
+  # reinstall.
+  cat > Caddyfile << 'EOF'
+{
+    on_demand_tls {
+        ask http://gateway:8000/api/v1/tls-check
+    }
+}
+
+(kubewatch_routes) {
     handle /api/* {
         reverse_proxy gateway:8000
     }
@@ -194,6 +218,17 @@ ${SITE} {
     handle {
         reverse_proxy frontend:3000
     }
+}
+
+http:// {
+    import kubewatch_routes
+}
+
+https:// {
+    tls {
+        on_demand
+    }
+    import kubewatch_routes
 }
 EOF
 

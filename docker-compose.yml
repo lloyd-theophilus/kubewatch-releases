@@ -30,6 +30,9 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       KUBEWATCH_LICENSE_KEY: ${KUBEWATCH_LICENSE_KEY:-}
       LICENSE_PUBLIC_KEY: ${LICENSE_PUBLIC_KEY:-}
+      # Public IP of this host, used by the Caddy on-demand-TLS gate
+      # (/api/v1/tls-check) so a domain pointed here auto-provisions HTTPS.
+      SERVER_PUBLIC_IP: ${SERVER_PUBLIC_IP:-}
     # Persist instance ID + activated license key/cache so the license survives
     # restarts (otherwise it reverts to trial and churns trial instance IDs).
     volumes:
