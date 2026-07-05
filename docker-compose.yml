@@ -26,7 +26,12 @@ services:
       CLOUD_SERVICE_URL: http://cloud:8010
       INTEGRATIONS_SERVICE_URL: http://integrations:8011
       JWT_SECRET: ${JWT_SECRET}
+      KUBEWATCH_LICENSE_KEY: ${KUBEWATCH_LICENSE_KEY:-}
       LICENSE_PUBLIC_KEY: ${LICENSE_PUBLIC_KEY:-}
+    # Persist instance ID + activated license key/cache so the license survives
+    # restarts (otherwise it reverts to trial and churns trial instance IDs).
+    volumes:
+      - gateway_data:/data
     restart: unless-stopped
     depends_on:
       - auth
@@ -277,3 +282,4 @@ volumes:
   vm_data:
   nats_data:
   caddy_data:
+  gateway_data:
