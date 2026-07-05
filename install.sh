@@ -159,6 +159,17 @@ JWT_SECRET=${JWT_SECRET}
 DB_PASSWORD=${DB_PASSWORD}
 APP_VERSION=${APP_VERSION}
 
+# ── Email notifications (optional) ───────────────────────────────────
+# Set these to enable outbound email: password-reset links, alert
+# notifications, and license reminders. Leave them unset to disable email
+# (you can still reset passwords from the server, see the docs). After
+# setting them, run: docker compose up -d
+# SMTP_HOST=smtp.your-provider.com
+# SMTP_PORT=587
+# SMTP_USER=your-smtp-username
+# SMTP_PASS=your-smtp-password
+# SMTP_FROM=support@your-company.com
+
 # ── Connecting agents ────────────────────────────────────────────────
 # The platform itself does not need an API key. Once it's running, log in
 # and create an API key under Settings -> API Keys, then use it as
