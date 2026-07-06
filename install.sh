@@ -198,6 +198,13 @@ EOF
   # SERVER_PUBLIC_IP). So a bare-IP install just works over HTTP today, and the
   # moment you point a domain at this IP it gets HTTPS automatically, no
   # reinstall.
+  # If a prior run's `docker compose up` ever started with no Caddyfile on disk
+  # yet, Docker auto-creates the bind-mount source as an empty DIRECTORY instead
+  # of a file, and every future recreation of the caddy container then fails
+  # ("not a directory") because the mount type is fixed at that point. Since
+  # this block is about to fully regenerate Caddyfile anyway, clear a stray
+  # directory first so `cat >` (which cannot overwrite a directory) succeeds.
+  rm -rf Caddyfile
   cat > Caddyfile << 'EOF'
 {
     on_demand_tls {
