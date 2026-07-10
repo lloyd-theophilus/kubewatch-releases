@@ -25,6 +25,7 @@ services:
       QUERY_SERVICE_URL: http://query:8003
       LIVE_DATA_SERVICE_URL: http://live-data:8009
       CLUSTERS_SERVICE_URL: http://clusters:8008
+      INCIDENTS_SERVICE_URL: http://incidents:8013
       CLOUD_SERVICE_URL: http://cloud:8010
       INTEGRATIONS_SERVICE_URL: http://integrations:8011
       JWT_SECRET: ${JWT_SECRET}
@@ -204,6 +205,22 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+
+  incidents:
+    security_opt:
+      - "no-new-privileges:true"
+    image: ghcr.io/lloyd-theophilus/kubewatch-incidents:latest
+    environment:
+      PORT: "8013"
+      KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
+      DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=disable
+      NATS_URL: nats://nats:4222
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_started
 
   cloud:
     security_opt:
