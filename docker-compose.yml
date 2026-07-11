@@ -69,7 +69,7 @@ services:
       migrate:
         condition: service_completed_successfully
       nats:
-        condition: service_started
+        condition: service_healthy
 
   ingestion:
     security_opt:
@@ -87,7 +87,7 @@ services:
       postgres:
         condition: service_healthy
       nats:
-        condition: service_started
+        condition: service_healthy
 
   query:
     security_opt:
@@ -133,7 +133,7 @@ services:
       postgres:
         condition: service_healthy
       nats:
-        condition: service_started
+        condition: service_healthy
 
   scaling-engine:
     security_opt:
@@ -151,7 +151,7 @@ services:
       postgres:
         condition: service_healthy
       nats:
-        condition: service_started
+        condition: service_healthy
 
   notification:
     security_opt:
@@ -172,7 +172,7 @@ services:
       postgres:
         condition: service_healthy
       nats:
-        condition: service_started
+        condition: service_healthy
 
   live-data:
     security_opt:
@@ -189,7 +189,7 @@ services:
       postgres:
         condition: service_healthy
       nats:
-        condition: service_started
+        condition: service_healthy
 
   clusters:
     security_opt:
@@ -220,7 +220,7 @@ services:
       postgres:
         condition: service_healthy
       nats:
-        condition: service_started
+        condition: service_healthy
 
   cloud:
     security_opt:
@@ -337,7 +337,20 @@ services:
     security_opt:
       - "no-new-privileges:true"
     image: public.ecr.aws/docker/library/nats:2-alpine
-    command: ["-js", "-sd", "/data"]
+    # -m enables the HTTP monitoring port used by the healthcheck below —
+    # without a healthcheck, `depends_on: condition: service_started` only
+    # waits for the process to start, not for NATS to actually accept
+    # connections. On a fresh `up -d`, dependents can start (and give up
+    # connecting) before NATS is ready, silently breaking the metrics
+    # pipeline until manually restarted — see live-data's NATS connection
+    # comment for how it degrades instead of crashing.
+    command: ["-js", "-sd", "/data", "-m", "8222"]
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8222/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
     volumes:
       - nats_data:/data
     restart: unless-stopped
