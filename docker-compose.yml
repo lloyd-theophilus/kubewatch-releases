@@ -101,6 +101,7 @@ services:
       VICTORIAMETRICS_SELECT_URL: http://victoriametrics:8428
       VICTORIAMETRICS_INSERT_URL: http://victoriametrics:8428
       NATS_URL: nats://nats:4222
+      NOTIFICATION_SERVICE_URL: http://notification:8007
       LICENSE_SERVER_URL: ${LICENSE_SERVER_URL:-https://licenses.kubewatchlabs.com}
       # In-app "Update Now" runs `docker compose pull && up -d` from a detached
       # updater container. COMPOSE_DIR is the host path of this project so the
