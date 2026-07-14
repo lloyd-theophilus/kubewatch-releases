@@ -200,6 +200,7 @@ services:
       PORT: "8008"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
       DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=disable
+      VICTORIAMETRICS_INSERT_URL: http://victoriametrics:8428
     volumes:
       - ~/.kube:/root/.kube:ro
     restart: unless-stopped
