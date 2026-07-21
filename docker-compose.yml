@@ -81,6 +81,7 @@ services:
       DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=disable
       NATS_URL: nats://nats:4222
       VICTORIAMETRICS_INSERT_URL: http://victoriametrics:8428
+      VICTORIALOGS_URL: http://victorialogs:9428
       AUTH_SERVICE_URL: http://auth:8001
     restart: unless-stopped
     depends_on:
@@ -100,6 +101,7 @@ services:
       DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=disable
       VICTORIAMETRICS_SELECT_URL: http://victoriametrics:8428
       VICTORIAMETRICS_INSERT_URL: http://victoriametrics:8428
+      VICTORIALOGS_URL: http://victorialogs:9428
       NATS_URL: nats://nats:4222
       NOTIFICATION_SERVICE_URL: http://notification:8007
       LICENSE_SERVER_URL: ${LICENSE_SERVER_URL:-https://licenses.kubewatchlabs.com}
@@ -335,6 +337,23 @@ services:
       - vm_data:/victoria-metrics-data
     restart: unless-stopped
 
+  # Log-oriented sibling of victoriametrics above: holds AI agent spans and
+  # continuously-collected container/pod logs (see services/ingestion's
+  # startBulkLogsWriter and startTSDBWriter). Present in the local dev
+  # compose since these features were built, but missing here until now —
+  # ingestion/query fall back to this exact hostname when VICTORIALOGS_URL
+  # isn't set, so without this service those features 500 on every request.
+  victorialogs:
+    security_opt:
+      - "no-new-privileges:true"
+    image: victoriametrics/victoria-logs:latest
+    command:
+      - -retentionPeriod=30d
+      - -storageDataPath=/victoria-logs-data
+    volumes:
+      - vl_data:/victoria-logs-data
+    restart: unless-stopped
+
   nats:
     security_opt:
       - "no-new-privileges:true"
@@ -360,6 +379,7 @@ services:
 volumes:
   postgres_data:
   vm_data:
+  vl_data:
   nats_data:
   caddy_data:
   gateway_data:
