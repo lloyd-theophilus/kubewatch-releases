@@ -326,18 +326,20 @@ services:
         condition: service_healthy
     restart: "no"
 
-  # Disaster recovery: scheduled Postgres backups uploaded to S3-compatible
-  # object storage, each immediately followed by an automated restore test
+  # Disaster recovery: scheduled Postgres backups pushed to one or more
+  # configured destinations (BACKUP_DESTINATIONS, comma-separated: s3, sftp,
+  # webhook, azure — an instance can push to just one, or several at once
+  # for redundancy), each immediately followed by an automated restore test
   # (restores into a scratch database on this same Postgres server, never
   # the real "kubewatch" database, verifies a basic row count, then drops
   # it). Self-hosted only for now; SaaS's own platform-wide backups are an
   # operator-console concern, not something exposed per-org. If
-  # BACKUP_S3_ENDPOINT/BACKUP_S3_BUCKET aren't set, this just idles — no
-  # backups run, and nothing else in the stack is affected.
+  # BACKUP_DESTINATIONS isn't set, this just idles — no backups run, and
+  # nothing else in the stack is affected.
   #
   # The manual "run backup now" trigger in services/query's Docker-Engine-API
-  # code launches a one-off container running the same run_backup logic as
-  # below with triggered_by=manual; keep the two in sync if this changes.
+  # code launches a one-off container running the same logic as below with
+  # triggered_by=manual; keep the two in sync if this changes.
   backup:
     security_opt:
       - "no-new-privileges:true"
@@ -348,27 +350,156 @@ services:
       PGPASSWORD: ${DB_PASSWORD}
       PGDATABASE: kubewatch
       BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
+      # Comma-separated subset of: s3, sftp, webhook, azure. Empty disables
+      # the feature entirely. Each kind's own env vars below only matter if
+      # that kind is listed here.
+      BACKUP_DESTINATIONS: ${BACKUP_DESTINATIONS:-}
       BACKUP_S3_ENDPOINT: ${BACKUP_S3_ENDPOINT:-}
       BACKUP_S3_BUCKET: ${BACKUP_S3_BUCKET:-}
       BACKUP_S3_ACCESS_KEY: ${BACKUP_S3_ACCESS_KEY:-}
       BACKUP_S3_SECRET_KEY: ${BACKUP_S3_SECRET_KEY:-}
       BACKUP_S3_USE_SSL: ${BACKUP_S3_USE_SSL:-true}
+      # SFTP: a dedicated, backup-only-scoped SSH key is strongly recommended
+      # over reusing a general admin key. Host key verification is
+      # trust-on-first-connect (accept-new), not pre-pinned — acceptable for
+      # a destination you configured yourself, not a substitute for network
+      # controls if that matters for your threat model.
+      BACKUP_SFTP_HOST: ${BACKUP_SFTP_HOST:-}
+      BACKUP_SFTP_PORT: ${BACKUP_SFTP_PORT:-22}
+      BACKUP_SFTP_USER: ${BACKUP_SFTP_USER:-}
+      BACKUP_SFTP_PATH: ${BACKUP_SFTP_PATH:-}
+      BACKUP_SFTP_PRIVATE_KEY: ${BACKUP_SFTP_PRIVATE_KEY:-} # base64-encoded PEM private key
+      # Generic webhook: the dump is POSTed as the raw request body.
+      BACKUP_WEBHOOK_URL: ${BACKUP_WEBHOOK_URL:-}
+      BACKUP_WEBHOOK_AUTH_HEADER: ${BACKUP_WEBHOOK_AUTH_HEADER:-} # e.g. "Bearer <token>", sent as Authorization
+      # Azure Blob: a container-level SAS URL with write permission
+      # (generate via the Azure Portal or `az storage container generate-sas`),
+      # e.g. https://acct.blob.core.windows.net/container?sv=...&sig=... —
+      # avoids implementing Azure's Shared-Key HMAC signing from scratch.
+      BACKUP_AZURE_CONTAINER_SAS_URL: ${BACKUP_AZURE_CONTAINER_SAS_URL:-}
     entrypoint:
       - sh
       - -c
       - |
-        echo "==> installing mc (MinIO client, S3-compatible upload)"
-        wget -qO /usr/local/bin/mc https://dl.min.io/client/mc/release/linux-amd64/mc
-        chmod +x /usr/local/bin/mc
-
-        if [ -z "$$BACKUP_S3_ENDPOINT" ] || [ -z "$$BACKUP_S3_BUCKET" ]; then
-          echo "BACKUP_S3_ENDPOINT/BACKUP_S3_BUCKET not set -- disaster recovery backups are disabled. Set these env vars to enable scheduled backups and restore tests."
+        if [ -z "$$BACKUP_DESTINATIONS" ]; then
+          echo "BACKUP_DESTINATIONS not set -- disaster recovery backups are disabled. Set this (and the matching destination env vars) to enable scheduled backups and restore tests."
           while true; do sleep 3600; done
         fi
 
-        SCHEME=https
-        if [ "$$BACKUP_S3_USE_SSL" = "false" ]; then SCHEME=http; fi
-        mc alias set dr "$$SCHEME://$$BACKUP_S3_ENDPOINT" "$$BACKUP_S3_ACCESS_KEY" "$$BACKUP_S3_SECRET_KEY" --api S3v4
+        has_destination() {
+          case ",$$BACKUP_DESTINATIONS," in
+            *",$$1,"*) return 0 ;;
+            *) return 1 ;;
+          esac
+        }
+
+        if has_destination s3; then
+          echo "==> installing mc (MinIO client, for the s3 destination)"
+          wget -qO /usr/local/bin/mc https://dl.min.io/client/mc/release/linux-amd64/mc
+          chmod +x /usr/local/bin/mc
+          SCHEME=https
+          if [ "$$BACKUP_S3_USE_SSL" = "false" ]; then SCHEME=http; fi
+          mc alias set dr "$$SCHEME://$$BACKUP_S3_ENDPOINT" "$$BACKUP_S3_ACCESS_KEY" "$$BACKUP_S3_SECRET_KEY" --api S3v4
+        fi
+        if has_destination sftp; then
+          echo "==> installing openssh-client (for the sftp destination)"
+          apk add --no-cache openssh-client >/dev/null
+        fi
+
+        record_destination() {
+          # $$1=row id  $$2=backup id  $$3=kind  $$4=status  $$5=location  $$6=error
+          psql -h "$$PGHOST" -U "$$PGUSER" -d "$$PGDATABASE" -c \
+            "INSERT INTO dr_backup_destinations (id, backup_id, kind, status, location, error, completed_at) VALUES ('$$1', '$$2', '$$3', '$$4', '$$5', '$$6', NOW())" >/dev/null
+        }
+
+        push_s3() { mc cp "$$1" "dr/$$BACKUP_S3_BUCKET/$$2" >/dev/null 2>&1; }
+
+        push_sftp() {
+          key_file="/tmp/sftp_key_$$$$"
+          echo "$$BACKUP_SFTP_PRIVATE_KEY" | base64 -d > "$$key_file" 2>/dev/null
+          chmod 600 "$$key_file"
+          # A single "put" piped in via stdin, rather than a heredoc — avoids
+          # any risk of the heredoc terminator not matching once this script
+          # is indented inside a YAML block scalar.
+          echo "put $$1 $$BACKUP_SFTP_PATH/$$2" | sftp -i "$$key_file" -P "$$BACKUP_SFTP_PORT" \
+            -o StrictHostKeyChecking=accept-new -o BatchMode=yes "$$BACKUP_SFTP_USER@$$BACKUP_SFTP_HOST" >/dev/null 2>&1
+          rc=$$?
+          rm -f "$$key_file"
+          return $$rc
+        }
+
+        push_webhook() {
+          # Branches instead of building an optional flag into a variable and
+          # leaving it unquoted — an unquoted "--header=...: value" variable
+          # would word-split on its embedded space/colon and mangle the flag.
+          if [ -n "$$BACKUP_WEBHOOK_AUTH_HEADER" ]; then
+            wget -q --method=POST --body-file="$$1" \
+              --header="Authorization: $$BACKUP_WEBHOOK_AUTH_HEADER" \
+              --header="Content-Type: application/octet-stream" --header="X-Backup-Filename: $$2" \
+              -O /dev/null "$$BACKUP_WEBHOOK_URL" >/dev/null 2>&1
+          else
+            wget -q --method=POST --body-file="$$1" \
+              --header="Content-Type: application/octet-stream" --header="X-Backup-Filename: $$2" \
+              -O /dev/null "$$BACKUP_WEBHOOK_URL" >/dev/null 2>&1
+          fi
+        }
+
+        push_azure() {
+          base="$${BACKUP_AZURE_CONTAINER_SAS_URL%%\?*}"
+          query="$${BACKUP_AZURE_CONTAINER_SAS_URL#*\?}"
+          wget -q --method=PUT --body-file="$$1" \
+            --header="x-ms-blob-type: BlockBlob" --header="Content-Type: application/octet-stream" \
+            -O /dev/null "$$base/$$2?$$query" >/dev/null 2>&1
+        }
+
+        # Pushes to every configured destination, recording one
+        # dr_backup_destinations row per attempt. Returns success (0) if at
+        # least one destination succeeded.
+        push_all_destinations() {
+          backup_id="$$1"
+          dump_file="$$2"
+          any_ok=1
+          saved_ifs="$$IFS"
+          IFS=','
+          set -- $$BACKUP_DESTINATIONS
+          IFS="$$saved_ifs"
+          for dest in "$$@"; do
+            dest=$$(echo "$$dest" | tr -d ' ')
+            [ -z "$$dest" ] && continue
+            row_id="drd_$$(date +%s)_$$$$_$$dest"
+            name="$${backup_id}.dump"
+            case "$$dest" in
+              s3)
+                key="backups/$$name"
+                if push_s3 "$$dump_file" "$$key"; then
+                  record_destination "$$row_id" "$$backup_id" "s3" "success" "$$key" ""; any_ok=0
+                else
+                  record_destination "$$row_id" "$$backup_id" "s3" "failed" "" "upload failed"
+                fi ;;
+              sftp)
+                if push_sftp "$$dump_file" "$$name"; then
+                  record_destination "$$row_id" "$$backup_id" "sftp" "success" "$$BACKUP_SFTP_PATH/$$name" ""; any_ok=0
+                else
+                  record_destination "$$row_id" "$$backup_id" "sftp" "failed" "" "sftp upload failed"
+                fi ;;
+              webhook)
+                if push_webhook "$$dump_file" "$$name"; then
+                  record_destination "$$row_id" "$$backup_id" "webhook" "success" "$$BACKUP_WEBHOOK_URL" ""; any_ok=0
+                else
+                  record_destination "$$row_id" "$$backup_id" "webhook" "failed" "" "webhook post failed"
+                fi ;;
+              azure)
+                if push_azure "$$dump_file" "$$name"; then
+                  record_destination "$$row_id" "$$backup_id" "azure" "success" "$$name" ""; any_ok=0
+                else
+                  record_destination "$$row_id" "$$backup_id" "azure" "failed" "" "azure upload failed"
+                fi ;;
+              *)
+                echo "unknown BACKUP_DESTINATIONS entry: $$dest" >&2 ;;
+            esac
+          done
+          return $$any_ok
+        }
 
         run_restore_test() {
           backup_id="$$1"
@@ -405,14 +536,13 @@ services:
           dump_file="/tmp/$${id}.dump"
           if pg_dump -h "$$PGHOST" -U "$$PGUSER" -d "$$PGDATABASE" --format=custom --compress=9 -f "$$dump_file"; then
             size=$$(stat -c %s "$$dump_file")
-            s3_key="backups/$${id}.dump"
-            if mc cp "$$dump_file" "dr/$$BACKUP_S3_BUCKET/$$s3_key"; then
+            if push_all_destinations "$$id" "$$dump_file"; then
               psql -h "$$PGHOST" -U "$$PGUSER" -d "$$PGDATABASE" -c \
-                "UPDATE dr_backups SET status='success', completed_at=NOW(), size_bytes=$$size, s3_key='$$s3_key' WHERE id='$$id'"
+                "UPDATE dr_backups SET status='success', completed_at=NOW(), size_bytes=$$size WHERE id='$$id'"
               run_restore_test "$$id" "$$dump_file"
             else
               psql -h "$$PGHOST" -U "$$PGUSER" -d "$$PGDATABASE" -c \
-                "UPDATE dr_backups SET status='failed', completed_at=NOW(), error='upload to S3 failed' WHERE id='$$id'"
+                "UPDATE dr_backups SET status='failed', completed_at=NOW(), size_bytes=$$size, error='all configured destinations failed' WHERE id='$$id'"
             fi
           else
             psql -h "$$PGHOST" -U "$$PGUSER" -d "$$PGDATABASE" -c \
@@ -421,7 +551,7 @@ services:
           rm -f "$$dump_file"
         }
 
-        echo "==> disaster-recovery backup loop starting (interval=$${BACKUP_INTERVAL_SECONDS}s)"
+        echo "==> disaster-recovery backup loop starting (interval=$${BACKUP_INTERVAL_SECONDS}s, destinations=$$BACKUP_DESTINATIONS)"
         while true; do
           run_backup scheduled
           sleep "$$BACKUP_INTERVAL_SECONDS"
