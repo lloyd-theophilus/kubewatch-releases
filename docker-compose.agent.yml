@@ -37,6 +37,13 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - kubewatch-agent-data:/data
+      # Host /proc and root filesystem, read-only — for this host's own
+      # system-level metrics (load average, memory/swap, disk/network
+      # throughput, uptime, filesystem usage). Without these two mounts the
+      # agent still runs fine; it just can't collect this host's own stats
+      # (same as before this existed), only container-level ones.
+      - /proc:/host/proc:ro
+      - /:/host/root:ro
 
 volumes:
   kubewatch-agent-data:

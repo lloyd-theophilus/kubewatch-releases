@@ -84,6 +84,8 @@ install_agent_only() {
     -e KUBEWATCH_AGENT_NAME="$AGENT_NAME" \
     -v /var/run/docker.sock:/var/run/docker.sock:ro \
     -v kubewatch-agent-data:/data \
+    -v /proc:/host/proc:ro \
+    -v /:/host/root:ro \
     ghcr.io/lloyd-theophilus/kubewatch-agent:latest
 
   echo ""
