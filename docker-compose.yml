@@ -326,6 +326,113 @@ services:
         condition: service_healthy
     restart: "no"
 
+  # Disaster recovery: scheduled Postgres backups uploaded to S3-compatible
+  # object storage, each immediately followed by an automated restore test
+  # (restores into a scratch database on this same Postgres server, never
+  # the real "kubewatch" database, verifies a basic row count, then drops
+  # it). Self-hosted only for now; SaaS's own platform-wide backups are an
+  # operator-console concern, not something exposed per-org. If
+  # BACKUP_S3_ENDPOINT/BACKUP_S3_BUCKET aren't set, this just idles — no
+  # backups run, and nothing else in the stack is affected.
+  #
+  # The manual "run backup now" trigger in services/query's Docker-Engine-API
+  # code launches a one-off container running the same run_backup logic as
+  # below with triggered_by=manual; keep the two in sync if this changes.
+  backup:
+    security_opt:
+      - "no-new-privileges:true"
+    image: public.ecr.aws/docker/library/postgres:16-alpine
+    environment:
+      PGHOST: postgres
+      PGUSER: kubewatch
+      PGPASSWORD: ${DB_PASSWORD}
+      PGDATABASE: kubewatch
+      BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
+      BACKUP_S3_ENDPOINT: ${BACKUP_S3_ENDPOINT:-}
+      BACKUP_S3_BUCKET: ${BACKUP_S3_BUCKET:-}
+      BACKUP_S3_ACCESS_KEY: ${BACKUP_S3_ACCESS_KEY:-}
+      BACKUP_S3_SECRET_KEY: ${BACKUP_S3_SECRET_KEY:-}
+      BACKUP_S3_USE_SSL: ${BACKUP_S3_USE_SSL:-true}
+    entrypoint:
+      - sh
+      - -c
+      - |
+        echo "==> installing mc (MinIO client, S3-compatible upload)"
+        wget -qO /usr/local/bin/mc https://dl.min.io/client/mc/release/linux-amd64/mc
+        chmod +x /usr/local/bin/mc
+
+        if [ -z "$$BACKUP_S3_ENDPOINT" ] || [ -z "$$BACKUP_S3_BUCKET" ]; then
+          echo "BACKUP_S3_ENDPOINT/BACKUP_S3_BUCKET not set -- disaster recovery backups are disabled. Set these env vars to enable scheduled backups and restore tests."
+          while true; do sleep 3600; done
+        fi
+
+        SCHEME=https
+        if [ "$$BACKUP_S3_USE_SSL" = "false" ]; then SCHEME=http; fi
+        mc alias set dr "$$SCHEME://$$BACKUP_S3_ENDPOINT" "$$BACKUP_S3_ACCESS_KEY" "$$BACKUP_S3_SECRET_KEY" --api S3v4
+
+        run_restore_test() {
+          backup_id="$$1"
+          dump_file="$$2"
+          test_id="rt_$$(date +%s)_$$$$"
+          scratch_db="dr_test_$$(date +%s)"
+          psql -h "$$PGHOST" -U "$$PGUSER" -d "$$PGDATABASE" -v ON_ERROR_STOP=1 -c \
+            "INSERT INTO dr_restore_tests (id, backup_id, status) VALUES ('$$test_id', '$$backup_id', 'running')"
+
+          if psql -h "$$PGHOST" -U "$$PGUSER" -d "$$PGDATABASE" -v ON_ERROR_STOP=1 -c "CREATE DATABASE $$scratch_db" \
+             && pg_restore -h "$$PGHOST" -U "$$PGUSER" -d "$$scratch_db" --format=custom "$$dump_file"; then
+            org_count=$$(psql -h "$$PGHOST" -U "$$PGUSER" -d "$$scratch_db" -t -A -c "SELECT COUNT(*) FROM organizations" 2>/dev/null)
+            if [ -n "$$org_count" ]; then
+              psql -h "$$PGHOST" -U "$$PGUSER" -d "$$PGDATABASE" -c \
+                "UPDATE dr_restore_tests SET status='passed', completed_at=NOW(), verified_org_count=$$org_count WHERE id='$$test_id'"
+            else
+              psql -h "$$PGHOST" -U "$$PGUSER" -d "$$PGDATABASE" -c \
+                "UPDATE dr_restore_tests SET status='failed', completed_at=NOW(), error='verification query failed' WHERE id='$$test_id'"
+            fi
+          else
+            psql -h "$$PGHOST" -U "$$PGUSER" -d "$$PGDATABASE" -c \
+              "UPDATE dr_restore_tests SET status='failed', completed_at=NOW(), error='restore failed' WHERE id='$$test_id'"
+          fi
+          # Always drop the scratch database, even if restore/verify failed partway.
+          psql -h "$$PGHOST" -U "$$PGUSER" -d "$$PGDATABASE" -c "DROP DATABASE IF EXISTS $$scratch_db" >/dev/null 2>&1 || true
+        }
+
+        run_backup() {
+          triggered_by="$${1:-scheduled}"
+          id="bkp_$$(date +%s)_$$$$"
+          psql -h "$$PGHOST" -U "$$PGUSER" -d "$$PGDATABASE" -v ON_ERROR_STOP=1 -c \
+            "INSERT INTO dr_backups (id, status, triggered_by) VALUES ('$$id', 'running', '$$triggered_by')"
+
+          dump_file="/tmp/$${id}.dump"
+          if pg_dump -h "$$PGHOST" -U "$$PGUSER" -d "$$PGDATABASE" --format=custom --compress=9 -f "$$dump_file"; then
+            size=$$(stat -c %s "$$dump_file")
+            s3_key="backups/$${id}.dump"
+            if mc cp "$$dump_file" "dr/$$BACKUP_S3_BUCKET/$$s3_key"; then
+              psql -h "$$PGHOST" -U "$$PGUSER" -d "$$PGDATABASE" -c \
+                "UPDATE dr_backups SET status='success', completed_at=NOW(), size_bytes=$$size, s3_key='$$s3_key' WHERE id='$$id'"
+              run_restore_test "$$id" "$$dump_file"
+            else
+              psql -h "$$PGHOST" -U "$$PGUSER" -d "$$PGDATABASE" -c \
+                "UPDATE dr_backups SET status='failed', completed_at=NOW(), error='upload to S3 failed' WHERE id='$$id'"
+            fi
+          else
+            psql -h "$$PGHOST" -U "$$PGUSER" -d "$$PGDATABASE" -c \
+              "UPDATE dr_backups SET status='failed', completed_at=NOW(), error='pg_dump failed' WHERE id='$$id'"
+          fi
+          rm -f "$$dump_file"
+        }
+
+        echo "==> disaster-recovery backup loop starting (interval=$${BACKUP_INTERVAL_SECONDS}s)"
+        while true; do
+          run_backup scheduled
+          sleep "$$BACKUP_INTERVAL_SECONDS"
+        done
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
   victoriametrics:
     security_opt:
       - "no-new-privileges:true"
