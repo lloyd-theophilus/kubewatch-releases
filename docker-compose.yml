@@ -156,6 +156,61 @@ services:
       nats:
         condition: service_healthy
 
+  # AI-Ops Feature 1 (Agent Cost-and-Reliability Ops): background-only
+  # evaluation engine, no tenant-facing API of its own — mirrors
+  # scaling-engine's split (this engine acts, services/query serves reads/CRUD).
+  agent-ops:
+    security_opt:
+      - "no-new-privileges:true"
+    image: ghcr.io/lloyd-theophilus/kubewatch-agent-ops:latest
+    environment:
+      AGENT_OPS_PORT: "8014"
+      KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
+      DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=disable
+      VICTORIAMETRICS_SELECT_URL: http://victoriametrics:8428
+      VICTORIALOGS_URL: http://victorialogs:9428
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # AI-Ops Feature 4 (Docker-vs-Kubernetes Workload Advisor): daily Placement
+  # Analysis Job. Reads live-data's existing HTTP API for workload inventory
+  # (no persisted workload catalog exists) — see services/workload-advisor/job.go.
+  workload-advisor:
+    security_opt:
+      - "no-new-privileges:true"
+    image: ghcr.io/lloyd-theophilus/kubewatch-workload-advisor:latest
+    environment:
+      WORKLOAD_ADVISOR_PORT: "8015"
+      KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
+      DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=disable
+      VICTORIAMETRICS_SELECT_URL: http://victoriametrics:8428
+      LIVE_DATA_SERVICE_URL: http://live-data:8009
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # AI-Ops Feature 5 (Autonomous Remediation): consumes alerts.fire.* and
+  # executes/dry-runs playbooks against the same command mechanism scaling-engine
+  # uses — see services/remediation-engine.
+  remediation-engine:
+    security_opt:
+      - "no-new-privileges:true"
+    image: ghcr.io/lloyd-theophilus/kubewatch-remediation-engine:latest
+    environment:
+      REMEDIATION_ENGINE_PORT: "8016"
+      KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
+      DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=disable
+      NATS_URL: nats://nats:4222
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+
   notification:
     security_opt:
       - "no-new-privileges:true"
