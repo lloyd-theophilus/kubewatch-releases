@@ -26,6 +26,7 @@ services:
       LIVE_DATA_SERVICE_URL: http://live-data:8009
       CLUSTERS_SERVICE_URL: http://clusters:8008
       INCIDENTS_SERVICE_URL: http://incidents:8013
+      PIPELINES_SERVICE_URL: http://pipelines:8017
       CLOUD_SERVICE_URL: http://cloud:8010
       INTEGRATIONS_SERVICE_URL: http://integrations:8011
       JWT_SECRET: ${JWT_SECRET}
@@ -282,6 +283,25 @@ services:
       postgres:
         condition: service_healthy
       nats:
+        condition: service_healthy
+
+  # VCS & CI/CD Observability (kubewatch-vcs-cicd/KUBEWATCH-VCS-CICD-OBSERVABILITY.md):
+  # connection CRUD + read APIs for code events/pipeline runs/deployment
+  # markers. Never receives Agent pushes directly — those land via
+  # live-data's push handler, which writes the same tables this service only
+  # ever reads (plus writes vcs_connections from the dashboard UI). Pro/
+  # Enterprise gated (plan_limits.vcs_cicd_enabled).
+  pipelines:
+    security_opt:
+      - "no-new-privileges:true"
+    image: ghcr.io/lloyd-theophilus/kubewatch-pipelines:latest
+    environment:
+      PORT: "8017"
+      KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
+      DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=disable
+    restart: unless-stopped
+    depends_on:
+      postgres:
         condition: service_healthy
 
   cloud:
