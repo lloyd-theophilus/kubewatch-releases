@@ -27,6 +27,7 @@ services:
       CLUSTERS_SERVICE_URL: http://clusters:8008
       INCIDENTS_SERVICE_URL: http://incidents:8013
       PIPELINES_SERVICE_URL: http://pipelines:8017
+      WEBHOOK_GATEWAY_SERVICE_URL: http://webhook-gateway:8018
       CLOUD_SERVICE_URL: http://cloud:8010
       INTEGRATIONS_SERVICE_URL: http://integrations:8011
       JWT_SECRET: ${JWT_SECRET}
@@ -299,6 +300,25 @@ services:
       PORT: "8017"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
       DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=disable
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # VCS & CI/CD Observability Phase 2: verifies each provider's webhook
+  # signature and forwards normalized events to live-data. Public-facing
+  # (see the gateway's /webhooks/* route) but harmless/unused if no
+  # connection ever enables a webhook — Tier 2 polling covers everything by
+  # default (kubewatch-vcs-cicd/KUBEWATCH-VCS-CICD-OBSERVABILITY.md §4.1).
+  webhook-gateway:
+    security_opt:
+      - "no-new-privileges:true"
+    image: ghcr.io/lloyd-theophilus/kubewatch-webhook-gateway:latest
+    environment:
+      PORT: "8018"
+      KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
+      DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=disable
+      LIVE_DATA_SERVICE_URL: http://live-data:8009
     restart: unless-stopped
     depends_on:
       postgres:
