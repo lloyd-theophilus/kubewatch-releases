@@ -227,9 +227,9 @@ services:
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASS: ${SMTP_PASS:-}
       SMTP_FROM: ${SMTP_FROM:-}
-      # Optional: when set, email is sent via SendGrid's API instead of the
+      # Optional: when set, email is sent via Bird's Email API instead of the
       # SMTP_* settings above (see services/notification/emailsender.go).
-      SENDGRID_API_KEY: ${SENDGRID_API_KEY:-}
+      BIRD_API_KEY: ${BIRD_API_KEY:-}
     restart: unless-stopped
     depends_on:
       postgres:
