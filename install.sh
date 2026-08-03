@@ -113,11 +113,17 @@ install_self_hosted_erp() {
     ADMIN_PASSWORD=$(grep '^ADMIN_PASSWORD=' "${ENV_FILE}" | cut -d= -f2-)
     JWT_SECRET=$(grep '^JWT_SECRET=' "${ENV_FILE}" | cut -d= -f2-)
     DB_PASSWORD=$(grep '^DB_PASSWORD=' "${ENV_FILE}" | cut -d= -f2-)
+    IAC_VAULT_MASTER_KEY=$(grep '^IAC_VAULT_MASTER_KEY=' "${ENV_FILE}" | cut -d= -f2-)
     REUSED_ENV=1
   fi
   ADMIN_PASSWORD="${ADMIN_PASSWORD:-$(openssl rand -base64 16 | tr -d '=+/')}"
   JWT_SECRET="${JWT_SECRET:-$(openssl rand -hex 32)}"
   DB_PASSWORD="${DB_PASSWORD:-$(openssl rand -hex 16)}"
+  # Same "never regenerate on reinstall" reasoning as JWT_SECRET/DB_PASSWORD
+  # above, for an even less forgiving reason: a new key here doesn't just
+  # invalidate sessions, it makes every secret already stored in
+  # Infrastructure Automation's vaults permanently undecryptable.
+  IAC_VAULT_MASTER_KEY="${IAC_VAULT_MASTER_KEY:-$(openssl rand -base64 32)}"
 
   # A bare IP can't get a public TLS cert (served over plain HTTP); a real domain
   # gets automatic HTTPS. Caddy is also set up for on-demand TLS (see the
@@ -169,6 +175,7 @@ ADMIN_EMAIL=${ADMIN_EMAIL}
 ADMIN_PASSWORD=${ADMIN_PASSWORD}
 JWT_SECRET=${JWT_SECRET}
 DB_PASSWORD=${DB_PASSWORD}
+IAC_VAULT_MASTER_KEY=${IAC_VAULT_MASTER_KEY}
 APP_VERSION=${APP_VERSION}
 
 # ── Email notifications (optional) ───────────────────────────────────

@@ -28,6 +28,7 @@ services:
       INCIDENTS_SERVICE_URL: http://incidents:8013
       PIPELINES_SERVICE_URL: http://pipelines:8017
       WEBHOOK_GATEWAY_SERVICE_URL: http://webhook-gateway:8018
+      IAC_SERVICE_URL: http://iac:8019
       CLOUD_SERVICE_URL: http://cloud:8010
       INTEGRATIONS_SERVICE_URL: http://integrations:8011
       JWT_SECRET: ${JWT_SECRET}
@@ -322,6 +323,52 @@ services:
     restart: unless-stopped
     depends_on:
       postgres:
+        condition: service_healthy
+
+  # Infrastructure Automation control-plane API — Projects/Vaults/Secrets/
+  # Variables/Stacks/Runs CRUD, project-scoped RBAC, plan-gating, audit,
+  # and run dispatch. IAC_VAULT_MASTER_KEY must be identical on this
+  # service and iac-worker (install.sh generates one; rotating it later
+  # means every previously-stored secret becomes permanently
+  # undecryptable, so treat it like DB_PASSWORD/JWT_SECRET, not a value to
+  # change casually).
+  iac:
+    security_opt:
+      - "no-new-privileges:true"
+    image: ghcr.io/lloyd-theophilus/kubewatch-iac:latest
+    environment:
+      PORT: "8019"
+      KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
+      DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=disable
+      NATS_URL: nats://nats:4222
+      VICTORIALOGS_URL: http://victorialogs:9428
+      IAC_VAULT_MASTER_KEY: ${IAC_VAULT_MASTER_KEY}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+
+  # Infrastructure Automation execution engine — runs tofu against
+  # a project's Git-synced code. No tenant-facing API; dispatched via NATS
+  # (fast path) plus a DB-polling fallback.
+  iac-worker:
+    security_opt:
+      - "no-new-privileges:true"
+    image: ghcr.io/lloyd-theophilus/kubewatch-iac-worker:latest
+    environment:
+      PORT: "8020"
+      KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
+      DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=disable
+      NATS_URL: nats://nats:4222
+      VICTORIALOGS_URL: http://victorialogs:9428
+      IAC_VAULT_MASTER_KEY: ${IAC_VAULT_MASTER_KEY}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
         condition: service_healthy
 
   cloud:
