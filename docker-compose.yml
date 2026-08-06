@@ -763,7 +763,9 @@ services:
       - "no-new-privileges:true"
     image: victoriametrics/victoria-logs:latest
     command:
-      - -retentionPeriod=30d
+      # 90d so the Pod/Container detail pages' longest log-history range
+      # option isn't decorative — bumped from 30d alongside those pages.
+      - -retentionPeriod=90d
       - -storageDataPath=/victoria-logs-data
     volumes:
       - vl_data:/victoria-logs-data
