@@ -412,6 +412,7 @@ services:
       PORT: "8010"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
       DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=disable
+      LIVE_DATA_SERVICE_URL: http://live-data:8009
     restart: unless-stopped
     depends_on:
       postgres:
