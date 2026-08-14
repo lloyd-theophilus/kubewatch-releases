@@ -23,13 +23,10 @@
 #     `environment` wins and an empty value there will blank out the env_file one.
 #   - `container_name` is fixed (not compose-project-derived) so the agent can
 #     find itself via the Docker API by name — required for one-click self-update
-#     from the dashboard (see KUBEWATCH_ALLOW_SELF_UPDATE below). Docker mode is
-#     one agent per host by design, so a fixed name is safe.
-#   - KUBEWATCH_ALLOW_SELF_UPDATE opts into the dashboard's "Update" button
-#     actually pulling a new image and recreating this container in place
-#     (stop, remove, create with the new image, same mounts/env/group_add).
-#     Off by default (fails closed) — leave unset/false unless you want the
-#     KubeWatch control plane able to trigger that recreation.
+#     from the dashboard: the KubeWatch control plane can pull a new image and
+#     recreate this container in place (stop, remove, create with the new
+#     image, same mounts/env/group_add) whenever an admin clicks Update. Docker
+#     mode is one agent per host by design, so a fixed name is safe.
 
 services:
   kubewatch-agent:
@@ -42,7 +39,6 @@ services:
       KUBEWATCH_SERVER_URL: "${KUBEWATCH_SERVER_URL:-}"
       KUBEWATCH_API_KEY: "${KUBEWATCH_API_KEY}"
       KUBEWATCH_AGENT_NAME: "${KUBEWATCH_AGENT_NAME:-}"
-      KUBEWATCH_ALLOW_SELF_UPDATE: "${KUBEWATCH_ALLOW_SELF_UPDATE:-false}"
     group_add:
       - "${DOCKER_GID:-999}"
     volumes:
