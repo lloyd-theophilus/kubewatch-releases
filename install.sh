@@ -114,6 +114,7 @@ install_self_hosted_erp() {
     JWT_SECRET=$(grep '^JWT_SECRET=' "${ENV_FILE}" | cut -d= -f2-)
     DB_PASSWORD=$(grep '^DB_PASSWORD=' "${ENV_FILE}" | cut -d= -f2-)
     IAC_VAULT_MASTER_KEY=$(grep '^IAC_VAULT_MASTER_KEY=' "${ENV_FILE}" | cut -d= -f2-)
+    ANALYTICS_VAULT_MASTER_KEY=$(grep '^ANALYTICS_VAULT_MASTER_KEY=' "${ENV_FILE}" | cut -d= -f2-)
     INTERNAL_SERVICE_TOKEN=$(grep '^INTERNAL_SERVICE_TOKEN=' "${ENV_FILE}" | cut -d= -f2-)
     REUSED_ENV=1
   fi
@@ -125,6 +126,10 @@ install_self_hosted_erp() {
   # invalidate sessions, it makes every secret already stored in
   # Infrastructure Automation's vaults permanently undecryptable.
   IAC_VAULT_MASTER_KEY="${IAC_VAULT_MASTER_KEY:-$(openssl rand -base64 32)}"
+  # Same reasoning as IAC_VAULT_MASTER_KEY above, for the analytics
+  # service's connection credentials (see shared/crypto/vault.go and
+  # services/analytics/main.go) -- never regenerate on reinstall.
+  ANALYTICS_VAULT_MASTER_KEY="${ANALYTICS_VAULT_MASTER_KEY:-$(openssl rand -base64 32)}"
   # Shared secret gateway uses to authenticate to auth's internal
   # self-hosted-license endpoints (services/auth/selfhosted_license.go).
   # Preserved across reinstalls like the others above, though nothing
@@ -183,6 +188,7 @@ ADMIN_PASSWORD=${ADMIN_PASSWORD}
 JWT_SECRET=${JWT_SECRET}
 DB_PASSWORD=${DB_PASSWORD}
 IAC_VAULT_MASTER_KEY=${IAC_VAULT_MASTER_KEY}
+ANALYTICS_VAULT_MASTER_KEY=${ANALYTICS_VAULT_MASTER_KEY}
 INTERNAL_SERVICE_TOKEN=${INTERNAL_SERVICE_TOKEN}
 APP_VERSION=${APP_VERSION}
 

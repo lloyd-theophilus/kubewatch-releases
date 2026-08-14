@@ -34,6 +34,8 @@ services:
       # NATS-driven or internal-only.
       NOTIFICATION_SERVICE_URL: http://notification:8007
       CLOUD_SERVICE_URL: http://cloud:8010
+      DATAOPS_SERVICE_URL: http://dataops:8021
+      ANALYTICS_SERVICE_URL: http://analytics:8022
       INTEGRATIONS_SERVICE_URL: http://integrations:8011
       JWT_SECRET: ${JWT_SECRET}
       KUBEWATCH_LICENSE_KEY: ${KUBEWATCH_LICENSE_KEY:-}
@@ -273,6 +275,13 @@ services:
       # Optional: when set, email is sent via Bird's Email API instead of the
       # SMTP_* settings above (see services/notification/emailsender.go).
       BIRD_API_KEY: ${BIRD_API_KEY:-}
+      # Dashboard/upgrade links templated into notification emails (see
+      # services/notification/mailer.go's dashboardURL/upgradeURL) --
+      # currently only reachable from SaaS/central-only publishers, but set
+      # here too so a future self-hosted-only notification never silently
+      # links back to KubeWatch's own SaaS dashboard instead of this
+      # instance's own domain.
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -343,6 +352,11 @@ services:
       PORT: "8017"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
       DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=disable
+      # Origin Tier-3 CI/CD webhook URLs are built against (see
+      # services/pipelines/connections.go's webhookBaseURL) -- without this,
+      # a self-hosted install's generated webhook URLs silently point at
+      # KubeWatch's own SaaS API gateway instead of this instance.
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -422,6 +436,47 @@ services:
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
       DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=disable
       LIVE_DATA_SERVICE_URL: http://live-data:8009
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # DataOps: ETL pipeline orchestration (AWS Glue/Step Functions today) and
+  # broader multi-cloud resource inventory + lifecycle control (RDS/S3/Lambda
+  # today). No plan-tier gate (deliberate product decision); only isAdmin
+  # gates its write routes. See services/dataops/service.go.
+  dataops:
+    security_opt:
+      - "no-new-privileges:true"
+    image: ghcr.io/lloyd-theophilus/kubewatch-dataops:latest
+    environment:
+      PORT: "8021"
+      KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
+      DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=disable
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Analytics: external Postgres/MySQL/Redshift/S3 connections, native
+  # in-process data cleaning (expr-lang backed), size-bounded cleaned-
+  # dataset storage for dashboarding. Credentials here are vault-encrypted
+  # (ANALYTICS_VAULT_MASTER_KEY must be identical wherever this service
+  # runs, generate with `openssl rand -base64 32`; without it the service
+  # fails to start, matching IAC_VAULT_MASTER_KEY's own fail-closed
+  # convention). No plan-tier gate (deliberate, matches dataops) -- only
+  # isAdmin gates its write routes. Unrelated to the dataops service above:
+  # dataops orchestrates AWS infrastructure, analytics reads and cleans a
+  # customer's own data.
+  analytics:
+    security_opt:
+      - "no-new-privileges:true"
+    image: ghcr.io/lloyd-theophilus/kubewatch-analytics:latest
+    environment:
+      PORT: "8022"
+      KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
+      DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=disable
+      ANALYTICS_VAULT_MASTER_KEY: ${ANALYTICS_VAULT_MASTER_KEY}
     restart: unless-stopped
     depends_on:
       postgres:
