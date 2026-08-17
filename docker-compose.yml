@@ -149,6 +149,26 @@ services:
       COMPOSE_DIR: ${PWD}
       COMPOSE_FILE: ${COMPOSE_FILE:-docker-compose.yml}
       COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-}
+      # Same BACKUP_* set as the "backup" service below -- query needs these
+      # too: it reads them back for the Disaster Recovery page's config
+      # display (getBackupConfig) and forwards them into the one-off
+      # container "Run backup now" launches (launchManualBackup), which
+      # otherwise silently sees none of what's actually configured.
+      BACKUP_DESTINATIONS: ${BACKUP_DESTINATIONS:-}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
+      BACKUP_S3_ENDPOINT: ${BACKUP_S3_ENDPOINT:-}
+      BACKUP_S3_BUCKET: ${BACKUP_S3_BUCKET:-}
+      BACKUP_S3_ACCESS_KEY: ${BACKUP_S3_ACCESS_KEY:-}
+      BACKUP_S3_SECRET_KEY: ${BACKUP_S3_SECRET_KEY:-}
+      BACKUP_S3_USE_SSL: ${BACKUP_S3_USE_SSL:-true}
+      BACKUP_SFTP_HOST: ${BACKUP_SFTP_HOST:-}
+      BACKUP_SFTP_PORT: ${BACKUP_SFTP_PORT:-22}
+      BACKUP_SFTP_USER: ${BACKUP_SFTP_USER:-}
+      BACKUP_SFTP_PATH: ${BACKUP_SFTP_PATH:-}
+      BACKUP_SFTP_PRIVATE_KEY: ${BACKUP_SFTP_PRIVATE_KEY:-}
+      BACKUP_WEBHOOK_URL: ${BACKUP_WEBHOOK_URL:-}
+      BACKUP_WEBHOOK_AUTH_HEADER: ${BACKUP_WEBHOOK_AUTH_HEADER:-}
+      BACKUP_AZURE_CONTAINER_SAS_URL: ${BACKUP_AZURE_CONTAINER_SAS_URL:-}
     # Docker socket: System Health reads container state; "Update Now" launches
     # the updater container through it.
     volumes:
@@ -593,6 +613,12 @@ services:
       PGPASSWORD: ${DB_PASSWORD}
       PGDATABASE: kubewatch
       BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
+      # 0 (or unset) means "keep forever" -- backups are never pruned. A
+      # positive value is the number of days a backup and its destination
+      # copies (S3 object, SFTP file, Azure blob -- webhook has no generic
+      # delete API and is left alone) are kept before the next scheduled
+      # backup prunes it.
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
       # Comma-separated subset of: s3, sftp, webhook, azure. Empty disables
       # the feature entirely. Each kind's own env vars below only matter if
       # that kind is listed here.
@@ -695,6 +721,69 @@ services:
             -O /dev/null "$$base/$$2?$$query" >/dev/null 2>&1
         }
 
+        delete_s3() { mc rm "dr/$$BACKUP_S3_BUCKET/$$1" >/dev/null 2>&1; }
+
+        delete_sftp() {
+          key_file="/tmp/sftp_key_$$$$"
+          echo "$$BACKUP_SFTP_PRIVATE_KEY" | base64 -d > "$$key_file" 2>/dev/null
+          chmod 600 "$$key_file"
+          echo "rm $$1" | sftp -i "$$key_file" -P "$$BACKUP_SFTP_PORT" \
+            -o StrictHostKeyChecking=accept-new -o BatchMode=yes "$$BACKUP_SFTP_USER@$$BACKUP_SFTP_HOST" >/dev/null 2>&1
+          rc=$$?
+          rm -f "$$key_file"
+          return $$rc
+        }
+
+        delete_azure() {
+          base="$${BACKUP_AZURE_CONTAINER_SAS_URL%%\?*}"
+          query="$${BACKUP_AZURE_CONTAINER_SAS_URL#*\?}"
+          wget -q --method=DELETE -O /dev/null "$$base/$$1?$$query" >/dev/null 2>&1
+        }
+
+        # Prunes backups (and their destination copies) older than
+        # BACKUP_RETENTION_DAYS -- empty or non-positive means "keep
+        # forever," never prune. Best-effort per destination: a delete
+        # call's exit status is deliberately ignored rather than blocking
+        # the dr_backups row's own deletion below -- a stale row pointing
+        # at an already-gone-or-undeletable file is worse than a file
+        # outliving its DB record by one cycle. webhook has no generic
+        # delete API, so it's skipped entirely -- nothing to call.
+        #
+        # delete_s3/delete_sftp/delete_azure target wherever
+        # BACKUP_S3_BUCKET/BACKUP_SFTP_HOST/BACKUP_AZURE_CONTAINER_SAS_URL
+        # point RIGHT NOW, not a snapshot of what was configured when that
+        # specific backup was originally pushed -- if a destination is
+        # reconfigured between backups, older backups at the old location
+        # become permanently un-prunable (silently orphaned) rather than
+        # erroring. Accepted: this mirrors the push side's own existing
+        # behavior, not something retention introduces.
+        prune_old_backups() {
+          retention="$${BACKUP_RETENTION_DAYS:-0}"
+          case "$$retention" in
+            ''|*[!0-9]*) return 0 ;;
+          esac
+          [ "$$retention" -le 0 ] && return 0
+
+          old_ids=$$(psql -h "$$PGHOST" -U "$$PGUSER" -d "$$PGDATABASE" -t -A -c \
+            "SELECT id FROM dr_backups WHERE started_at < NOW() - INTERVAL '$$retention days'" 2>/dev/null)
+          [ -z "$$old_ids" ] && return 0
+
+          for prune_id in $$old_ids; do
+            psql -h "$$PGHOST" -U "$$PGUSER" -d "$$PGDATABASE" -t -A -F'|' -c \
+              "SELECT kind, location FROM dr_backup_destinations WHERE backup_id='$$prune_id' AND status='success' AND location IS NOT NULL" 2>/dev/null |
+            while IFS='|' read -r prune_kind prune_location; do
+              [ -z "$$prune_location" ] && continue
+              case "$$prune_kind" in
+                s3) delete_s3 "$$prune_location" ;;
+                sftp) delete_sftp "$$prune_location" ;;
+                azure) delete_azure "$$prune_location" ;;
+                *) : ;;
+              esac
+            done
+            psql -h "$$PGHOST" -U "$$PGUSER" -d "$$PGDATABASE" -c "DELETE FROM dr_backups WHERE id='$$prune_id'" >/dev/null 2>&1
+          done
+        }
+
         # Pushes to every configured destination, recording one
         # dr_backup_destinations row per attempt. Returns success (0) if at
         # least one destination succeeded.
@@ -791,6 +880,7 @@ services:
             psql -h "$$PGHOST" -U "$$PGUSER" -d "$$PGDATABASE" -c \
               "UPDATE dr_backups SET status='failed', completed_at=NOW(), error='pg_dump failed' WHERE id='$$id'"
           fi
+          prune_old_backups
           rm -f "$$dump_file"
         }
 
