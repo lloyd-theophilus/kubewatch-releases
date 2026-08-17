@@ -36,6 +36,7 @@ services:
       CLOUD_SERVICE_URL: http://cloud:8010
       DATAOPS_SERVICE_URL: http://dataops:8021
       ANALYTICS_SERVICE_URL: http://analytics:8022
+      DEVOPS_AGENT_SERVICE_URL: http://devops-agent:8023
       INTEGRATIONS_SERVICE_URL: http://integrations:8011
       JWT_SECRET: ${JWT_SECRET}
       KUBEWATCH_LICENSE_KEY: ${KUBEWATCH_LICENSE_KEY:-}
@@ -500,6 +501,36 @@ services:
     restart: unless-stopped
     depends_on:
       postgres:
+        condition: service_healthy
+
+  # AI DevOps Agent: bring-your-own-key LLM log diagnosis, triggered by
+  # alerts.fire.* (same NATS consumer as remediation-engine above) or on
+  # demand from the dashboard. Never executes anything itself -- a
+  # resolvable, allowlisted suggestion becomes a row in
+  # remediation_playbooks for remediation-engine to evaluate completely
+  # unmodified. No plan-tier gate on diagnosis itself (deliberate, matches
+  # analytics/dataops); autonomous execution reuses remediation's existing
+  # Enterprise gate. DEVOPS_AGENT_VAULT_MASTER_KEY is required, generate
+  # with `openssl rand -base64 32`; without it the service fails to start,
+  # matching ANALYTICS_VAULT_MASTER_KEY's own fail-closed convention -- its
+  # own key, never shared with analytics' or iac's.
+  devops-agent:
+    security_opt:
+      - "no-new-privileges:true"
+    image: ghcr.io/lloyd-theophilus/kubewatch-devops-agent:latest
+    environment:
+      PORT: "8023"
+      KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
+      DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=disable
+      NATS_URL: nats://nats:4222
+      VICTORIALOGS_URL: http://victorialogs:9428
+      DEVOPS_AGENT_VAULT_MASTER_KEY: ${DEVOPS_AGENT_VAULT_MASTER_KEY}
+      DEVOPS_AGENT_MAX_DIAGNOSES_PER_HOUR: ${DEVOPS_AGENT_MAX_DIAGNOSES_PER_HOUR:-20}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
         condition: service_healthy
 
   integrations:
