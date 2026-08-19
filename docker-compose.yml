@@ -378,6 +378,11 @@ services:
       # a self-hosted install's generated webhook URLs silently point at
       # KubeWatch's own SaaS API gateway instead of this instance.
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
+      # Tekton detailed-log fetches route through live-data's internal
+      # pod-logs endpoint (this service has no cluster network access of
+      # its own) -- see services/pipelines/logs.go's fetchTektonLog.
+      LIVE_DATA_SERVICE_URL: "http://live-data:8009"
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
     restart: unless-stopped
     depends_on:
       postgres:
