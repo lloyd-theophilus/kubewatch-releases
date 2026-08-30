@@ -1,5 +1,18 @@
+# Caps every container's own stdout/stderr log file so it can never fill
+# the disk on its own -- Docker's json-file driver has no size limit by
+# default, and a noisy or crashlooping container can otherwise grow
+# unbounded indefinitely. 10MB x 3 files per container is generous for
+# debugging while keeping a worst case (every one of ~30 services at the
+# cap simultaneously) well under a gigabyte total.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   caddy:
+    logging: *default-logging
     security_opt:
       - "no-new-privileges:true"
     image: public.ecr.aws/docker/library/caddy:2-alpine
@@ -14,6 +27,7 @@ services:
       - gateway
 
   gateway:
+    logging: *default-logging
     security_opt:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-gateway:latest
@@ -81,6 +95,7 @@ services:
       - query
 
   auth:
+    logging: *default-logging
     security_opt:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-auth:latest
@@ -111,6 +126,7 @@ services:
         condition: service_healthy
 
   ingestion:
+    logging: *default-logging
     security_opt:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-ingestion:latest
@@ -130,6 +146,7 @@ services:
         condition: service_healthy
 
   query:
+    logging: *default-logging
     security_opt:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-query:latest
@@ -180,6 +197,7 @@ services:
         condition: service_healthy
 
   alert-engine:
+    logging: *default-logging
     security_opt:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-alert-engine:latest
@@ -198,6 +216,7 @@ services:
         condition: service_healthy
 
   scaling-engine:
+    logging: *default-logging
     security_opt:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-scaling-engine:latest
@@ -219,6 +238,7 @@ services:
   # evaluation engine, no tenant-facing API of its own — mirrors
   # scaling-engine's split (this engine acts, services/query serves reads/CRUD).
   agent-ops:
+    logging: *default-logging
     security_opt:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-agent-ops:latest
@@ -240,6 +260,7 @@ services:
   # Analysis Job. Reads live-data's existing HTTP API for workload inventory
   # (no persisted workload catalog exists) — see services/workload-advisor/job.go.
   workload-advisor:
+    logging: *default-logging
     security_opt:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-workload-advisor:latest
@@ -264,6 +285,7 @@ services:
   # executes/dry-runs playbooks against the same command mechanism scaling-engine
   # uses — see services/remediation-engine.
   remediation-engine:
+    logging: *default-logging
     security_opt:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-remediation-engine:latest
@@ -280,6 +302,7 @@ services:
         condition: service_healthy
 
   notification:
+    logging: *default-logging
     security_opt:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-notification:latest
@@ -311,6 +334,7 @@ services:
         condition: service_healthy
 
   live-data:
+    logging: *default-logging
     security_opt:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-live-data:latest
@@ -328,6 +352,7 @@ services:
         condition: service_healthy
 
   clusters:
+    logging: *default-logging
     security_opt:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-clusters:latest
@@ -344,6 +369,7 @@ services:
         condition: service_healthy
 
   incidents:
+    logging: *default-logging
     security_opt:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-incidents:latest
@@ -366,6 +392,7 @@ services:
   # ever reads (plus writes vcs_connections from the dashboard UI). Pro/
   # Enterprise gated (plan_limits.vcs_cicd_enabled).
   pipelines:
+    logging: *default-logging
     security_opt:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-pipelines:latest
@@ -394,6 +421,7 @@ services:
   # connection ever enables a webhook — Tier 2 polling covers everything by
   # default (kubewatch-vcs-cicd/KUBEWATCH-VCS-CICD-OBSERVABILITY.md §4.1).
   webhook-gateway:
+    logging: *default-logging
     security_opt:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-webhook-gateway:latest
@@ -415,6 +443,7 @@ services:
   # undecryptable, so treat it like DB_PASSWORD/JWT_SECRET, not a value to
   # change casually).
   iac:
+    logging: *default-logging
     security_opt:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-iac:latest
@@ -436,6 +465,7 @@ services:
   # a project's Git-synced code. No tenant-facing API; dispatched via NATS
   # (fast path) plus a DB-polling fallback.
   iac-worker:
+    logging: *default-logging
     security_opt:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-iac-worker:latest
@@ -454,6 +484,7 @@ services:
         condition: service_healthy
 
   cloud:
+    logging: *default-logging
     security_opt:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-cloud:latest
@@ -472,6 +503,7 @@ services:
   # today). No plan-tier gate (deliberate product decision); only isAdmin
   # gates its write routes. See services/dataops/service.go.
   dataops:
+    logging: *default-logging
     security_opt:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-dataops:latest
@@ -495,6 +527,7 @@ services:
   # dataops orchestrates AWS infrastructure, analytics reads and cleans a
   # customer's own data.
   analytics:
+    logging: *default-logging
     security_opt:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-analytics:latest
@@ -520,6 +553,7 @@ services:
   # matching ANALYTICS_VAULT_MASTER_KEY's own fail-closed convention -- its
   # own key, never shared with analytics' or iac's.
   devops-agent:
+    logging: *default-logging
     security_opt:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-devops-agent:latest
@@ -539,6 +573,7 @@ services:
         condition: service_healthy
 
   integrations:
+    logging: *default-logging
     security_opt:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-integrations:latest
@@ -552,6 +587,7 @@ services:
         condition: service_healthy
 
   frontend:
+    logging: *default-logging
     security_opt:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-frontend:latest
@@ -564,6 +600,7 @@ services:
       - gateway
 
   postgres:
+    logging: *default-logging
     security_opt:
       - "no-new-privileges:true"
     image: public.ecr.aws/docker/library/postgres:16-alpine
@@ -590,6 +627,7 @@ services:
   # Up sections use CREATE TABLE/COLUMN IF NOT EXISTS and ON CONFLICT, so
   # re-running is safe. Services reading core tables wait for this to finish.
   migrate:
+    logging: *default-logging
     security_opt:
       - "no-new-privileges:true"
     image: public.ecr.aws/docker/library/postgres:16-alpine
@@ -640,6 +678,7 @@ services:
   # code launches a one-off container running the same logic as below with
   # triggered_by=manual; keep the two in sync if this changes.
   backup:
+    logging: *default-logging
     security_opt:
       - "no-new-privileges:true"
     image: public.ecr.aws/docker/library/postgres:16-alpine
@@ -933,6 +972,7 @@ services:
     restart: unless-stopped
 
   victoriametrics:
+    logging: *default-logging
     security_opt:
       - "no-new-privileges:true"
     image: victoriametrics/victoria-metrics:latest
@@ -950,6 +990,7 @@ services:
   # ingestion/query fall back to this exact hostname when VICTORIALOGS_URL
   # isn't set, so without this service those features 500 on every request.
   victorialogs:
+    logging: *default-logging
     security_opt:
       - "no-new-privileges:true"
     image: victoriametrics/victoria-logs:latest
@@ -963,6 +1004,7 @@ services:
     restart: unless-stopped
 
   nats:
+    logging: *default-logging
     security_opt:
       - "no-new-privileges:true"
     image: public.ecr.aws/docker/library/nats:2-alpine
