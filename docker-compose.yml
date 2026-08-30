@@ -10,6 +10,14 @@ x-logging: &default-logging
     max-size: "10m"
     max-file: "3"
 
+# Single source of truth for DATABASE_URL, merged into each service's own
+# environment block below via YAML's `<<:` merge key -- avoids repeating
+# this exact connection-string template ~20 times. DB_PASSWORD itself
+# stays the one secret an operator actually sets (README's install
+# script generates it), this just assembles the DSN from it in one place.
+x-env-defaults: &env-defaults
+  DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=disable
+
 services:
   caddy:
     logging: *default-logging
@@ -100,11 +108,11 @@ services:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-auth:latest
     environment:
+      <<: *env-defaults
       AUTH_PORT: "8001"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
       KUBEWATCH_LICENSE_KEY: ${KUBEWATCH_LICENSE_KEY:-}
       LICENSE_PUBLIC_KEY: ${LICENSE_PUBLIC_KEY:-}
-      DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=disable
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRY: "24h"
       ADMIN_EMAIL: ${ADMIN_EMAIL}
@@ -131,9 +139,9 @@ services:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-ingestion:latest
     environment:
+      <<: *env-defaults
       INGESTION_PORT: "8002"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
-      DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=disable
       NATS_URL: nats://nats:4222
       VICTORIAMETRICS_INSERT_URL: http://victoriametrics:8428
       VICTORIALOGS_URL: http://victorialogs:9428
@@ -151,10 +159,10 @@ services:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-query:latest
     environment:
+      <<: *env-defaults
       QUERY_PORT: "8003"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
       APP_VERSION: ${APP_VERSION:-dev}
-      DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=disable
       VICTORIAMETRICS_SELECT_URL: http://victoriametrics:8428
       VICTORIAMETRICS_INSERT_URL: http://victoriametrics:8428
       VICTORIALOGS_URL: http://victorialogs:9428
@@ -202,9 +210,9 @@ services:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-alert-engine:latest
     environment:
+      <<: *env-defaults
       ALERT_ENGINE_PORT: "8005"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
-      DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=disable
       VICTORIAMETRICS_SELECT_URL: http://victoriametrics:8428
       NATS_URL: nats://nats:4222
       EVAL_INTERVAL: "30s"
@@ -221,9 +229,9 @@ services:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-scaling-engine:latest
     environment:
+      <<: *env-defaults
       SCALING_ENGINE_PORT: "8012"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
-      DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=disable
       VICTORIAMETRICS_SELECT_URL: http://victoriametrics:8428
       NATS_URL: nats://nats:4222
       SCALE_INTERVAL: "30s"
@@ -243,12 +251,12 @@ services:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-agent-ops:latest
     environment:
+      <<: *env-defaults
       AGENT_OPS_PORT: "8014"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
       # Its own interval knob, deliberately not the shared EVAL_INTERVAL that
       # alert-engine uses — see services/agent-ops/main.go.
       AGENT_OPS_EVAL_INTERVAL: ${AGENT_OPS_EVAL_INTERVAL:-30s}
-      DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=disable
       VICTORIAMETRICS_SELECT_URL: http://victoriametrics:8428
       VICTORIALOGS_URL: http://victorialogs:9428
     restart: unless-stopped
@@ -265,10 +273,10 @@ services:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-workload-advisor:latest
     environment:
+      <<: *env-defaults
       WORKLOAD_ADVISOR_PORT: "8015"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
       WORKLOAD_ADVISOR_ANALYSIS_INTERVAL: ${WORKLOAD_ADVISOR_ANALYSIS_INTERVAL:-24h}
-      DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=disable
       VICTORIAMETRICS_SELECT_URL: http://victoriametrics:8428
       LIVE_DATA_SERVICE_URL: http://live-data:8009
     restart: unless-stopped
@@ -290,9 +298,9 @@ services:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-remediation-engine:latest
     environment:
+      <<: *env-defaults
       REMEDIATION_ENGINE_PORT: "8016"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
-      DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=disable
       NATS_URL: nats://nats:4222
     restart: unless-stopped
     depends_on:
@@ -307,9 +315,9 @@ services:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-notification:latest
     environment:
+      <<: *env-defaults
       NOTIFICATION_PORT: "8007"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
-      DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=disable
       NATS_URL: nats://nats:4222
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
@@ -339,9 +347,9 @@ services:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-live-data:latest
     environment:
+      <<: *env-defaults
       PORT: "8009"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
-      DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=disable
       NATS_URL: nats://nats:4222
       AUTH_SERVICE_URL: http://auth:8001
     restart: unless-stopped
@@ -357,9 +365,9 @@ services:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-clusters:latest
     environment:
+      <<: *env-defaults
       PORT: "8008"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
-      DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=disable
       VICTORIAMETRICS_INSERT_URL: http://victoriametrics:8428
     volumes:
       - ~/.kube:/root/.kube:ro
@@ -374,9 +382,9 @@ services:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-incidents:latest
     environment:
+      <<: *env-defaults
       PORT: "8013"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
-      DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=disable
       NATS_URL: nats://nats:4222
     restart: unless-stopped
     depends_on:
@@ -397,9 +405,9 @@ services:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-pipelines:latest
     environment:
+      <<: *env-defaults
       PORT: "8017"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
-      DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=disable
       # Origin Tier-3 CI/CD webhook URLs are built against (see
       # services/pipelines/connections.go's webhookBaseURL) -- without this,
       # a self-hosted install's generated webhook URLs silently point at
@@ -426,9 +434,9 @@ services:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-webhook-gateway:latest
     environment:
+      <<: *env-defaults
       PORT: "8018"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
-      DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=disable
       LIVE_DATA_SERVICE_URL: http://live-data:8009
     restart: unless-stopped
     depends_on:
@@ -448,9 +456,9 @@ services:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-iac:latest
     environment:
+      <<: *env-defaults
       PORT: "8019"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
-      DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=disable
       NATS_URL: nats://nats:4222
       VICTORIALOGS_URL: http://victorialogs:9428
       IAC_VAULT_MASTER_KEY: ${IAC_VAULT_MASTER_KEY}
@@ -470,9 +478,9 @@ services:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-iac-worker:latest
     environment:
+      <<: *env-defaults
       PORT: "8020"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
-      DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=disable
       NATS_URL: nats://nats:4222
       VICTORIALOGS_URL: http://victorialogs:9428
       IAC_VAULT_MASTER_KEY: ${IAC_VAULT_MASTER_KEY}
@@ -489,9 +497,9 @@ services:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-cloud:latest
     environment:
+      <<: *env-defaults
       PORT: "8010"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
-      DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=disable
       LIVE_DATA_SERVICE_URL: http://live-data:8009
     restart: unless-stopped
     depends_on:
@@ -508,9 +516,9 @@ services:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-dataops:latest
     environment:
+      <<: *env-defaults
       PORT: "8021"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
-      DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=disable
     restart: unless-stopped
     depends_on:
       postgres:
@@ -532,9 +540,9 @@ services:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-analytics:latest
     environment:
+      <<: *env-defaults
       PORT: "8022"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
-      DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=disable
       ANALYTICS_VAULT_MASTER_KEY: ${ANALYTICS_VAULT_MASTER_KEY}
     restart: unless-stopped
     depends_on:
@@ -558,9 +566,9 @@ services:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-devops-agent:latest
     environment:
+      <<: *env-defaults
       PORT: "8023"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
-      DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=disable
       NATS_URL: nats://nats:4222
       VICTORIALOGS_URL: http://victorialogs:9428
       DEVOPS_AGENT_VAULT_MASTER_KEY: ${DEVOPS_AGENT_VAULT_MASTER_KEY}
@@ -578,9 +586,9 @@ services:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-integrations:latest
     environment:
+      <<: *env-defaults
       PORT: "8011"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
-      DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=disable
     restart: unless-stopped
     depends_on:
       postgres:
