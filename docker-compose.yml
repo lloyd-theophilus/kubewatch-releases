@@ -51,6 +51,7 @@ services:
       PIPELINES_SERVICE_URL: http://pipelines:8017
       WEBHOOK_GATEWAY_SERVICE_URL: http://webhook-gateway:8018
       IAC_SERVICE_URL: http://iac:8019
+      CREDENTIALS_SERVICE_URL: http://credentials:8024
       # Only route proxied here is the public marketing-email unsubscribe link
       # (/api/v1/email/unsubscribe); everything else notification does is
       # NATS-driven or internal-only.
@@ -467,6 +468,25 @@ services:
       postgres:
         condition: service_healthy
       nats:
+        condition: service_healthy
+
+  # Credentials vault — stores login credentials (password/API key/SSH key)
+  # encrypted at rest, shared with other users at a per-credential
+  # viewer/operator/admin role. No tenant-facing worker like iac has; this
+  # service is the whole feature.
+  credentials:
+    logging: *default-logging
+    security_opt:
+      - "no-new-privileges:true"
+    image: ghcr.io/lloyd-theophilus/kubewatch-credentials:latest
+    environment:
+      <<: *env-defaults
+      PORT: "8024"
+      KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
+      CREDENTIALS_VAULT_MASTER_KEY: ${CREDENTIALS_VAULT_MASTER_KEY}
+    restart: unless-stopped
+    depends_on:
+      postgres:
         condition: service_healthy
 
   # Infrastructure Automation execution engine — runs tofu against

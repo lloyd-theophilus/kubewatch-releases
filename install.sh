@@ -116,6 +116,7 @@ install_self_hosted_erp() {
     IAC_VAULT_MASTER_KEY=$(grep '^IAC_VAULT_MASTER_KEY=' "${ENV_FILE}" | cut -d= -f2-)
     ANALYTICS_VAULT_MASTER_KEY=$(grep '^ANALYTICS_VAULT_MASTER_KEY=' "${ENV_FILE}" | cut -d= -f2-)
     DEVOPS_AGENT_VAULT_MASTER_KEY=$(grep '^DEVOPS_AGENT_VAULT_MASTER_KEY=' "${ENV_FILE}" | cut -d= -f2-)
+    CREDENTIALS_VAULT_MASTER_KEY=$(grep '^CREDENTIALS_VAULT_MASTER_KEY=' "${ENV_FILE}" | cut -d= -f2-)
     INTERNAL_SERVICE_TOKEN=$(grep '^INTERNAL_SERVICE_TOKEN=' "${ENV_FILE}" | cut -d= -f2-)
     REUSED_ENV=1
   fi
@@ -135,6 +136,9 @@ install_self_hosted_erp() {
   # connections (see services/devops-agent) -- its own key, never shared
   # with analytics' or iac's.
   DEVOPS_AGENT_VAULT_MASTER_KEY="${DEVOPS_AGENT_VAULT_MASTER_KEY:-$(openssl rand -base64 32)}"
+  # Same reasoning again, for the Vault feature's stored login credentials
+  # (see services/credentials) -- its own key, never shared with the others.
+  CREDENTIALS_VAULT_MASTER_KEY="${CREDENTIALS_VAULT_MASTER_KEY:-$(openssl rand -base64 32)}"
   # Shared secret gateway uses to authenticate to auth's internal
   # self-hosted-license endpoints (services/auth/selfhosted_license.go).
   # Preserved across reinstalls like the others above, though nothing
@@ -195,6 +199,7 @@ DB_PASSWORD=${DB_PASSWORD}
 IAC_VAULT_MASTER_KEY=${IAC_VAULT_MASTER_KEY}
 ANALYTICS_VAULT_MASTER_KEY=${ANALYTICS_VAULT_MASTER_KEY}
 DEVOPS_AGENT_VAULT_MASTER_KEY=${DEVOPS_AGENT_VAULT_MASTER_KEY}
+CREDENTIALS_VAULT_MASTER_KEY=${CREDENTIALS_VAULT_MASTER_KEY}
 INTERNAL_SERVICE_TOKEN=${INTERNAL_SERVICE_TOKEN}
 APP_VERSION=${APP_VERSION}
 
