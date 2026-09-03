@@ -16,7 +16,7 @@ x-logging: &default-logging
 # stays the one secret an operator actually sets (README's install
 # script generates it), this just assembles the DSN from it in one place.
 x-env-defaults: &env-defaults
-  DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=disable
+  DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=require
 
 services:
   caddy:
@@ -627,6 +627,33 @@ services:
     depends_on:
       - gateway
 
+  # One-shot: copies the self-signed cert install.sh generated into ./certs
+  # (host-owned, arbitrary UID) into a named volume with the ownership and
+  # permissions Postgres actually requires -- it refuses to start if
+  # ssl_key_file is group- or world-readable, and a plain bind mount
+  # preserves the host's UID, which essentially never matches the
+  # container's postgres user (uid/gid 70 on this alpine-based image, also
+  # pgbouncer's in docker-compose.saas.yml, which reads the same volume for
+  # its own client-facing TLS). Runs as root -- the default for this plain
+  # alpine image -- specifically to be able to chown/chmod at all.
+  pg-tls-init:
+    logging: *default-logging
+    security_opt:
+      - "no-new-privileges:true"
+    image: public.ecr.aws/docker/library/alpine:3.19
+    volumes:
+      - ./certs:/host-certs:ro
+      - pg_certs:/certs
+    command:
+      - sh
+      - -c
+      - |
+        cp /host-certs/postgres.crt /host-certs/postgres.key /certs/
+        chown 70:70 /certs/postgres.crt /certs/postgres.key
+        chmod 644 /certs/postgres.crt
+        chmod 600 /certs/postgres.key
+    restart: "no"
+
   postgres:
     logging: *default-logging
     security_opt:
@@ -636,14 +663,25 @@ services:
       POSTGRES_DB: kubewatch
       POSTGRES_USER: kubewatch
       POSTGRES_PASSWORD: ${DB_PASSWORD}
+    # Encrypts every service's connection to Postgres (see x-env-defaults'
+    # DATABASE_URL sslmode=require above) -- otherwise plaintext on the
+    # shared Docker bridge network, readable by any other compromised
+    # container on it. installer/docker-compose.saas.yml's postgres
+    # override must restate these flags (a command: override replaces the
+    # whole list, it doesn't merge with this one).
+    command: ["postgres", "-c", "ssl=on", "-c", "ssl_cert_file=/certs/postgres.crt", "-c", "ssl_key_file=/certs/postgres.key"]
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - pg_certs:/certs:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U kubewatch"]
       interval: 10s
       timeout: 5s
       retries: 5
     restart: unless-stopped
+    depends_on:
+      pg-tls-init:
+        condition: service_completed_successfully
 
   # One-shot schema migrator. Applies infra/migrations/*.sql (staged into
   # ./migrations by the deploy job) on every `up`.
@@ -661,6 +699,10 @@ services:
     image: public.ecr.aws/docker/library/postgres:16-alpine
     environment:
       PGPASSWORD: ${DB_PASSWORD}
+      # Read by psql automatically (same as every Go service's DATABASE_URL
+      # sslmode=require above) -- this talks to postgres directly, not
+      # through DATABASE_URL, so it needs its own explicit setting.
+      PGSSLMODE: require
     volumes:
       - ./migrations:/migrations:ro
     entrypoint:
@@ -715,6 +757,9 @@ services:
       PGUSER: kubewatch
       PGPASSWORD: ${DB_PASSWORD}
       PGDATABASE: kubewatch
+      # Same reasoning as the migrate service's PGSSLMODE above -- pg_dump/
+      # psql/pg_restore all read this directly, bypassing DATABASE_URL.
+      PGSSLMODE: require
       BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
       # 0 (or unset) means "keep forever" -- backups are never pruned. A
       # positive value is the number of days a backup and its destination
@@ -1056,6 +1101,7 @@ services:
 
 volumes:
   postgres_data:
+  pg_certs:
   vm_data:
   vl_data:
   nats_data:

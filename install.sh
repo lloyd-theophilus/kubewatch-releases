@@ -273,12 +273,31 @@ https:// {
 }
 EOF
 
+  # Self-signed cert Postgres and pgbouncer use to encrypt the app-to-database
+  # connection (see docker-compose.yml's pg-tls-init service for how this gets
+  # the right ownership/permissions once mounted into containers). The
+  # connection is set to sslmode=require, which only checks the connection is
+  # encrypted, not the server's identity -- verifying identity would mean
+  # distributing this cert as a trusted CA to every one of the ~25 service
+  # containers for no real benefit, since the actual threat here is a
+  # compromised sibling container passively sniffing the shared Docker
+  # network, not someone spoofing the "postgres" hostname. Never regenerated
+  # on reinstall, same reasoning as DB_PASSWORD: harmless either way (nothing
+  # here pins the old cert), but no reason to add churn.
+  mkdir -p certs
+  if [ ! -f certs/postgres.crt ]; then
+    openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
+      -keyout certs/postgres.key -out certs/postgres.crt \
+      -subj "/CN=postgres" > /dev/null 2>&1
+  fi
+
   # Restrict the files that carry secrets or reveal deployment internals to the
   # owner only, so other accounts on the host can't read them. .env holds
   # JWT_SECRET, DB_PASSWORD and any API keys; the compose file and Caddyfile
-  # expose the deployment layout. The docker compose CLI and the in-app updater
-  # run as the owner (or root), so 0600 does not affect normal operation.
-  chmod 600 .env docker-compose.yml Caddyfile 2>/dev/null || true
+  # expose the deployment layout; certs/postgres.key is the TLS private key.
+  # The docker compose CLI and the in-app updater run as the owner (or root),
+  # so 0600 does not affect normal operation.
+  chmod 600 .env docker-compose.yml Caddyfile certs/postgres.key 2>/dev/null || true
 
   echo "Pulling images..."
   if ! docker compose pull; then
