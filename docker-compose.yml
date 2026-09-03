@@ -170,6 +170,7 @@ services:
       NATS_URL: nats://nats:4222
       NOTIFICATION_SERVICE_URL: http://notification:8007
       LICENSE_SERVER_URL: ${LICENSE_SERVER_URL:-https://licenses.kubewatchlabs.com}
+      NOTIFICATION_CHANNELS_VAULT_MASTER_KEY: ${NOTIFICATION_CHANNELS_VAULT_MASTER_KEY}
       # In-app "Update Now" runs `docker compose pull && up -d` from a detached
       # updater container. COMPOSE_DIR is the host path of this project so the
       # updater can bind-mount it; ${PWD} resolves to where compose was invoked.
@@ -335,6 +336,7 @@ services:
       # links back to KubeWatch's own SaaS dashboard instead of this
       # instance's own domain.
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
+      NOTIFICATION_CHANNELS_VAULT_MASTER_KEY: ${NOTIFICATION_CHANNELS_VAULT_MASTER_KEY}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -419,6 +421,7 @@ services:
       # its own) -- see services/pipelines/logs.go's fetchTektonLog.
       LIVE_DATA_SERVICE_URL: "http://live-data:8009"
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
+      PIPELINES_VAULT_MASTER_KEY: ${PIPELINES_VAULT_MASTER_KEY}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -439,6 +442,7 @@ services:
       PORT: "8018"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
       LIVE_DATA_SERVICE_URL: http://live-data:8009
+      PIPELINES_VAULT_MASTER_KEY: ${PIPELINES_VAULT_MASTER_KEY}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -511,6 +515,10 @@ services:
       nats:
         condition: service_healthy
 
+  # CLOUD_VAULT_MASTER_KEY is required, generate with `openssl rand -base64
+  # 32`; without it the service fails to start, encrypting cloud_providers.
+  # credentials (AWS/GCP/Azure account-level credentials) at rest -- its own
+  # key, never shared with devops-agent's/analytics'/iac's.
   cloud:
     logging: *default-logging
     security_opt:
@@ -521,6 +529,7 @@ services:
       PORT: "8010"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
       LIVE_DATA_SERVICE_URL: http://live-data:8009
+      CLOUD_VAULT_MASTER_KEY: ${CLOUD_VAULT_MASTER_KEY}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -539,6 +548,7 @@ services:
       <<: *env-defaults
       PORT: "8021"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
+      DATAOPS_VAULT_MASTER_KEY: ${DATAOPS_VAULT_MASTER_KEY}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -609,6 +619,7 @@ services:
       <<: *env-defaults
       PORT: "8011"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
+      INTEGRATIONS_VAULT_MASTER_KEY: ${INTEGRATIONS_VAULT_MASTER_KEY}
     restart: unless-stopped
     depends_on:
       postgres:
