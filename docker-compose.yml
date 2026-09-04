@@ -171,6 +171,7 @@ services:
       NOTIFICATION_SERVICE_URL: http://notification:8007
       LICENSE_SERVER_URL: ${LICENSE_SERVER_URL:-https://licenses.kubewatchlabs.com}
       NOTIFICATION_CHANNELS_VAULT_MASTER_KEY: ${NOTIFICATION_CHANNELS_VAULT_MASTER_KEY}
+      VULNSCAN_VAULT_MASTER_KEY: ${VULNSCAN_VAULT_MASTER_KEY}
       # In-app "Update Now" runs `docker compose pull && up -d` from a detached
       # updater container. COMPOSE_DIR is the host path of this project so the
       # updater can bind-mount it; ${PWD} resolves to where compose was invoked.
@@ -362,6 +363,12 @@ services:
       nats:
         condition: service_healthy
 
+  # CLUSTERS_VAULT_MASTER_KEY is required, generate with `openssl rand
+  # -base64 32`; without it the service fails to start, encrypting
+  # clusters.kubeconfig at rest -- a kubeconfig commonly embeds a client
+  # cert+key or a long-lived bearer/service-account token granting full
+  # cluster-admin API access. Its own key, never shared with another
+  # service.
   clusters:
     logging: *default-logging
     security_opt:
@@ -372,6 +379,7 @@ services:
       PORT: "8008"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
       VICTORIAMETRICS_INSERT_URL: http://victoriametrics:8428
+      CLUSTERS_VAULT_MASTER_KEY: ${CLUSTERS_VAULT_MASTER_KEY}
     volumes:
       - ~/.kube:/root/.kube:ro
     restart: unless-stopped
