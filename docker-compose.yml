@@ -611,12 +611,61 @@ services:
       VICTORIALOGS_URL: http://victorialogs:9428
       DEVOPS_AGENT_VAULT_MASTER_KEY: ${DEVOPS_AGENT_VAULT_MASTER_KEY}
       DEVOPS_AGENT_MAX_DIAGNOSES_PER_HOUR: ${DEVOPS_AGENT_MAX_DIAGNOSES_PER_HOUR:-20}
+      # Log Intelligence spec's "embedded" provider tier: every install gets
+      # AI log diagnosis with no BYOK key and no per-token cost, talking to
+      # the co-located embedded-llm service below. Set EMBEDDED_LLM_ENABLED=false
+      # to turn this off entirely (e.g. a minimal/low-memory install that
+      # only ever wants a paid BYOK provider) without removing the container.
+      EMBEDDED_LLM_ENABLED: ${EMBEDDED_LLM_ENABLED:-true}
+      EMBEDDED_LLM_URL: http://embedded-llm:8080/v1
+      EMBEDDED_LLM_MODEL: phi-4-mini-instruct
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
       nats:
         condition: service_healthy
+
+  # Log Intelligence spec §2's "embedded" Provider Router tier: a small,
+  # MIT-licensed model (Phi-4-mini-instruct) served locally via llama.cpp's
+  # OpenAI-compatible server, so devops-agent's AI log diagnosis works out
+  # of the box with no external API key and no per-token cost -- CPU-only,
+  # no GPU required. --hf-repo/--hf-file pull the GGUF from Hugging Face on
+  # first start and cache it in embedded_llm_models; every restart after
+  # that reuses the cached file rather than re-downloading it.
+  #
+  # This container image/flag set is llama.cpp's documented server usage as
+  # of this writing -- verify against https://github.com/ggml-org/llama.cpp's
+  # own docs at deploy time in case the project has renamed the image or
+  # changed its CLI flags since.
+  #
+  # On by default, matching the spec's "no admin configuration required."
+  # To opt out entirely (frees the RAM/CPU this container would otherwise
+  # use), comment out this whole block AND set EMBEDDED_LLM_ENABLED=false
+  # above on devops-agent -- the latter alone stops devops-agent from
+  # calling it, but leaves the container itself running idle.
+  embedded-llm:
+    logging: *default-logging
+    security_opt:
+      - "no-new-privileges:true"
+    image: ghcr.io/ggml-org/llama.cpp:server
+    command:
+      - "--hf-repo"
+      - "microsoft/Phi-4-mini-instruct-GGUF"
+      - "--hf-file"
+      - "Phi-4-mini-instruct-Q4_K_M.gguf"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "8080"
+      - "--ctx-size"
+      - "8192"
+    volumes:
+      - embedded_llm_models:/root/.cache/llama.cpp
+    # Deliberately no `ports:` -- reached only from devops-agent over the
+    # compose network, same "no exposed ports beyond what's needed" posture
+    # as postgres/nats/victoriametrics in this file.
+    restart: unless-stopped
 
   integrations:
     logging: *default-logging
@@ -1126,3 +1175,4 @@ volumes:
   nats_data:
   caddy_data:
   gateway_data:
+  embedded_llm_models:
