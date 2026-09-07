@@ -649,6 +649,16 @@ services:
     security_opt:
       - "no-new-privileges:true"
     image: ghcr.io/ggml-org/llama.cpp:server
+    environment:
+      # Hugging Face has started rejecting the --hf-repo/--hf-file lookup
+      # for this repo with a 401 when no token is sent at all, even though
+      # the model itself is public -- llama.cpp reads this exact env var
+      # name to authenticate its Hub API calls, no CLI flag needed. Leave
+      # unset if HF isn't requiring auth for you; a free read-only token
+      # from https://huggingface.co/settings/tokens fixes the 401 either
+      # way. Empty by default so this container still starts without one
+      # (it just fails the same way it did before, not worse).
+      HF_TOKEN: ${HF_TOKEN:-}
     command:
       - "--hf-repo"
       - "microsoft/Phi-4-mini-instruct-GGUF"
