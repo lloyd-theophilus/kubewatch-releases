@@ -661,7 +661,7 @@ services:
       HF_TOKEN: ${HF_TOKEN:-}
     command:
       - "--hf-repo"
-      - "microsoft/Phi-4-mini-instruct-GGUF"
+      - "unsloth/Phi-4-mini-instruct-GGUF"
       - "--hf-file"
       - "Phi-4-mini-instruct-Q4_K_M.gguf"
       - "--host"
