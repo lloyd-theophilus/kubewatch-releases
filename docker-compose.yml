@@ -699,13 +699,24 @@ services:
     # 1.57GiB RSS and 208% CPU during a real diagnosis on a 5.8GB-total
     # host with zero memory limits anywhere, which left the kernel's OOM
     # killer free to kill an unrelated process under pressure instead of
-    # scoping the damage to this one container. 2g/1.5g and 2 CPUs cap it
-    # comfortably above its observed steady-state usage while still
-    # leaving room for the rest of the stack; raise these if you have a
-    # bigger box; the two settings below are compose's classic per-service
-    # limits, not the deploy.resources block, so they take effect even
-    # without Swarm.
-    mem_limit: 2g
+    # scoping the damage to this one container.
+    #
+    # mem_limit is 3g, not 2g, specifically because 1.57GiB observed during
+    # ONE diagnosis leaves too thin a margin above a 2g cap -- a longer log
+    # excerpt or a bigger prompt could plausibly cross it and get this
+    # container OOM-killed mid-diagnosis, which a customer would see as a
+    # failed "Diagnose with AI" call. mem_reservation stays at the
+    # steady-state-appropriate 1.5g (the soft target the kernel reclaims
+    # toward under pressure, not a hard cap), so this change only widens
+    # the ceiling for a genuine spike, it doesn't pre-commit more memory
+    # than before. Safe to do now that the host also has swap configured as
+    # a backstop (see installer README / ops notes) -- raise mem_limit
+    # further if you have a bigger box, or lower it back toward
+    # mem_reservation if you'd rather fail a diagnosis than risk the rest
+    # of the stack under real memory pressure. The two settings below are
+    # compose's classic per-service limits, not the deploy.resources block,
+    # so they take effect even without Swarm.
+    mem_limit: 3g
     mem_reservation: 1.5g
     cpus: "2"
     environment:
