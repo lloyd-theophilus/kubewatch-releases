@@ -651,6 +651,7 @@ services:
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
       NATS_URL: nats://nats:4222
       VICTORIALOGS_URL: http://victorialogs:9428
+      VICTORIAMETRICS_SELECT_URL: http://victoriametrics:8428
       DEVOPS_AGENT_VAULT_MASTER_KEY: ${DEVOPS_AGENT_VAULT_MASTER_KEY}
       DEVOPS_AGENT_MAX_DIAGNOSES_PER_HOUR: ${DEVOPS_AGENT_MAX_DIAGNOSES_PER_HOUR:-20}
       # Log Intelligence spec's "embedded" provider tier: every install gets
