@@ -39,6 +39,8 @@ services:
     security_opt:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-gateway:latest
+    mem_limit: 256m
+    mem_reservation: 128m
     environment:
       GATEWAY_PORT: "8000"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
@@ -108,6 +110,8 @@ services:
     security_opt:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-auth:latest
+    mem_limit: 256m
+    mem_reservation: 128m
     environment:
       <<: *env-defaults
       AUTH_PORT: "8001"
@@ -139,6 +143,8 @@ services:
     security_opt:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-ingestion:latest
+    mem_limit: 512m
+    mem_reservation: 256m
     environment:
       <<: *env-defaults
       INGESTION_PORT: "8002"
@@ -159,6 +165,8 @@ services:
     security_opt:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-query:latest
+    mem_limit: 256m
+    mem_reservation: 128m
     environment:
       <<: *env-defaults
       QUERY_PORT: "8003"
@@ -212,6 +220,8 @@ services:
     security_opt:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-alert-engine:latest
+    mem_limit: 256m
+    mem_reservation: 128m
     environment:
       <<: *env-defaults
       ALERT_ENGINE_PORT: "8005"
@@ -231,6 +241,8 @@ services:
     security_opt:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-scaling-engine:latest
+    mem_limit: 128m
+    mem_reservation: 64m
     environment:
       <<: *env-defaults
       SCALING_ENGINE_PORT: "8012"
@@ -253,6 +265,8 @@ services:
     security_opt:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-agent-ops:latest
+    mem_limit: 128m
+    mem_reservation: 64m
     environment:
       <<: *env-defaults
       AGENT_OPS_PORT: "8014"
@@ -275,6 +289,8 @@ services:
     security_opt:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-workload-advisor:latest
+    mem_limit: 128m
+    mem_reservation: 64m
     environment:
       <<: *env-defaults
       WORKLOAD_ADVISOR_PORT: "8015"
@@ -300,6 +316,8 @@ services:
     security_opt:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-remediation-engine:latest
+    mem_limit: 128m
+    mem_reservation: 64m
     environment:
       <<: *env-defaults
       REMEDIATION_ENGINE_PORT: "8016"
@@ -317,6 +335,8 @@ services:
     security_opt:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-notification:latest
+    mem_limit: 128m
+    mem_reservation: 64m
     environment:
       <<: *env-defaults
       NOTIFICATION_PORT: "8007"
@@ -350,6 +370,8 @@ services:
     security_opt:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-live-data:latest
+    mem_limit: 256m
+    mem_reservation: 128m
     environment:
       <<: *env-defaults
       PORT: "8009"
@@ -374,6 +396,8 @@ services:
     security_opt:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-clusters:latest
+    mem_limit: 128m
+    mem_reservation: 64m
     environment:
       <<: *env-defaults
       PORT: "8008"
@@ -392,6 +416,8 @@ services:
     security_opt:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-incidents:latest
+    mem_limit: 128m
+    mem_reservation: 64m
     environment:
       <<: *env-defaults
       PORT: "8013"
@@ -415,6 +441,8 @@ services:
     security_opt:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-pipelines:latest
+    mem_limit: 128m
+    mem_reservation: 64m
     environment:
       <<: *env-defaults
       PORT: "8017"
@@ -445,6 +473,8 @@ services:
     security_opt:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-webhook-gateway:latest
+    mem_limit: 128m
+    mem_reservation: 64m
     environment:
       <<: *env-defaults
       PORT: "8018"
@@ -468,6 +498,8 @@ services:
     security_opt:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-iac:latest
+    mem_limit: 128m
+    mem_reservation: 64m
     environment:
       <<: *env-defaults
       PORT: "8019"
@@ -509,6 +541,8 @@ services:
     security_opt:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-iac-worker:latest
+    mem_limit: 1g
+    mem_reservation: 128m
     environment:
       <<: *env-defaults
       PORT: "8020"
@@ -532,6 +566,8 @@ services:
     security_opt:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-cloud:latest
+    mem_limit: 128m
+    mem_reservation: 64m
     environment:
       <<: *env-defaults
       PORT: "8010"
@@ -552,6 +588,8 @@ services:
     security_opt:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-dataops:latest
+    mem_limit: 128m
+    mem_reservation: 64m
     environment:
       <<: *env-defaults
       PORT: "8021"
@@ -577,6 +615,8 @@ services:
     security_opt:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-analytics:latest
+    mem_limit: 128m
+    mem_reservation: 64m
     environment:
       <<: *env-defaults
       PORT: "8022"
@@ -603,6 +643,8 @@ services:
     security_opt:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-devops-agent:latest
+    mem_limit: 128m
+    mem_reservation: 64m
     environment:
       <<: *env-defaults
       PORT: "8023"
@@ -649,6 +691,23 @@ services:
     security_opt:
       - "no-new-privileges:true"
     image: ghcr.io/ggml-org/llama.cpp:server
+    # Deliberately NOT the Helm chart's own resources (3Gi request / 4Gi
+    # limit, installer/helm/kubewatch-erp/values.yaml's devopsAgent.
+    # embeddedLlm.resources) -- those numbers assume a real Kubernetes
+    # node with headroom to spare. A single-box self-hosted install has no
+    # such guarantee: this exact container was observed (docker stats) at
+    # 1.57GiB RSS and 208% CPU during a real diagnosis on a 5.8GB-total
+    # host with zero memory limits anywhere, which left the kernel's OOM
+    # killer free to kill an unrelated process under pressure instead of
+    # scoping the damage to this one container. 2g/1.5g and 2 CPUs cap it
+    # comfortably above its observed steady-state usage while still
+    # leaving room for the rest of the stack; raise these if you have a
+    # bigger box; the two settings below are compose's classic per-service
+    # limits, not the deploy.resources block, so they take effect even
+    # without Swarm.
+    mem_limit: 2g
+    mem_reservation: 1.5g
+    cpus: "2"
     environment:
       # Hugging Face has started rejecting the --hf-repo/--hf-file lookup
       # for this repo with a 401 when no token is sent at all, even though
@@ -682,6 +741,8 @@ services:
     security_opt:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-integrations:latest
+    mem_limit: 128m
+    mem_reservation: 64m
     environment:
       <<: *env-defaults
       PORT: "8011"
@@ -697,6 +758,8 @@ services:
     security_opt:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-frontend:latest
+    mem_limit: 512m
+    mem_reservation: 256m
     environment:
       API_BASE: http://gateway:8000
       NEXT_PUBLIC_MODE: selfhosted
@@ -737,6 +800,8 @@ services:
     security_opt:
       - "no-new-privileges:true"
     image: public.ecr.aws/docker/library/postgres:16-alpine
+    mem_limit: 1g
+    mem_reservation: 256m
     environment:
       POSTGRES_DB: kubewatch
       POSTGRES_USER: kubewatch
@@ -1127,6 +1192,8 @@ services:
     security_opt:
       - "no-new-privileges:true"
     image: victoriametrics/victoria-metrics:latest
+    mem_limit: 2g
+    mem_reservation: 512m
     command:
       - -retentionPeriod=365d
       - -storageDataPath=/victoria-metrics-data
@@ -1145,6 +1212,8 @@ services:
     security_opt:
       - "no-new-privileges:true"
     image: victoriametrics/victoria-logs:latest
+    mem_limit: 1g
+    mem_reservation: 256m
     command:
       # 90d so the Pod/Container detail pages' longest log-history range
       # option isn't decorative — bumped from 30d alongside those pages.
@@ -1159,6 +1228,8 @@ services:
     security_opt:
       - "no-new-privileges:true"
     image: public.ecr.aws/docker/library/nats:2-alpine
+    mem_limit: 256m
+    mem_reservation: 64m
     # -m enables the HTTP monitoring port used by the healthcheck below —
     # without a healthcheck, `depends_on: condition: service_started` only
     # waits for the process to start, not for NATS to actually accept
