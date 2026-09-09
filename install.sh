@@ -63,7 +63,7 @@ install_agent_only() {
     echo "The agent image is public and requires no login, so an 'unauthorized' or"
     echo "'denied' error is usually a transient registry or network issue. Check"
     echo "outbound access to ghcr.io from this host and try again, or contact"
-    echo "support@kubewatchlabs.com."
+    echo "hello@kubewatchlabs.com."
     exit 1
   fi
   # The agent image runs as a non-root user, but /var/run/docker.sock is owned by
@@ -310,7 +310,7 @@ EOF
     echo "    cd ~/kubewatch-erp && docker compose pull && docker compose up -d"
     echo ""
     echo "If it persists, check outbound access to ghcr.io from this host, or contact"
-    echo "support@kubewatchlabs.com."
+    echo "hello@kubewatchlabs.com."
     exit 1
   fi
   echo "Starting services..."
