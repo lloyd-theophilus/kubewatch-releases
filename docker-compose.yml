@@ -488,6 +488,9 @@ services:
       <<: *env-defaults
       PORT: "8025"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
+      # Optional -- only needed to import an existing Catchpoint test as a
+      # check; plain HTTP/TCP checks store no secret at all.
+      SYNTHETICS_VAULT_MASTER_KEY: ${SYNTHETICS_VAULT_MASTER_KEY:-}
     restart: unless-stopped
     depends_on:
       postgres:
