@@ -51,6 +51,7 @@ services:
       CLUSTERS_SERVICE_URL: http://clusters:8008
       INCIDENTS_SERVICE_URL: http://incidents:8013
       PIPELINES_SERVICE_URL: http://pipelines:8017
+      SYNTHETICS_SERVICE_URL: http://synthetics:8025
       WEBHOOK_GATEWAY_SERVICE_URL: http://webhook-gateway:8018
       IAC_SERVICE_URL: http://iac:8019
       CREDENTIALS_SERVICE_URL: http://credentials:8024
@@ -468,6 +469,25 @@ services:
       LIVE_DATA_SERVICE_URL: "http://live-data:8009"
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
       PIPELINES_VAULT_MASTER_KEY: ${PIPELINES_VAULT_MASTER_KEY}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Uptime Monitoring: scheduled HTTP(S)/TCP checks against any target the
+  # user points it at. No secrets stored (a check is just a target URL/
+  # host+port), so unlike pipelines above this has no *_VAULT_MASTER_KEY.
+  synthetics:
+    logging: *default-logging
+    security_opt:
+      - "no-new-privileges:true"
+    image: ghcr.io/lloyd-theophilus/kubewatch-synthetics:latest
+    mem_limit: 128m
+    mem_reservation: 64m
+    environment:
+      <<: *env-defaults
+      PORT: "8025"
+      KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
     restart: unless-stopped
     depends_on:
       postgres:
