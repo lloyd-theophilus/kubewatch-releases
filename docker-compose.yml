@@ -129,6 +129,16 @@ services:
       # Shared secret required on /internal/orgs/{id}/self-hosted-license
       # (see services/auth/selfhosted_license.go and the gateway block above).
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN}
+      # Cloudflare Turnstile (bot protection on login/signup). Both empty by
+      # default -- no widget, no verification, unchanged behavior. Unlike
+      # NEXT_PUBLIC_API_URL above, TURNSTILE_SITE_KEY is served to the
+      # browser at runtime by GET /auth/setup/status (see
+      # frontend/dashboard/components/Turnstile.tsx and shared/turnstile),
+      # not baked into the image at build time, so setting both here works
+      # without rebuilding anything -- get keys from the Cloudflare
+      # dashboard: Turnstile -> add site.
+      TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:-}
+      TURNSTILE_SITE_KEY: ${TURNSTILE_SITE_KEY:-}
     restart: unless-stopped
     depends_on:
       postgres:
