@@ -52,6 +52,7 @@ services:
       INCIDENTS_SERVICE_URL: http://incidents:8013
       PIPELINES_SERVICE_URL: http://pipelines:8017
       SYNTHETICS_SERVICE_URL: http://synthetics:8025
+      EXPORT_TARGETS_SERVICE_URL: http://export-targets:8026
       WEBHOOK_GATEWAY_SERVICE_URL: http://webhook-gateway:8018
       IAC_SERVICE_URL: http://iac:8019
       CREDENTIALS_SERVICE_URL: http://credentials:8024
@@ -491,6 +492,29 @@ services:
       # Optional -- only needed to import an existing Catchpoint test as a
       # check; plain HTTP/TCP checks store no secret at all.
       SYNTHETICS_VAULT_MASTER_KEY: ${SYNTHETICS_VAULT_MASTER_KEY:-}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Outbound metrics export: forwards KubeWatch's own collected metrics to
+  # a competing/adjacent observability platform's ingest API (Datadog,
+  # Dynatrace, etc.). Every target stores a real third-party credential, so
+  # EXPORT_TARGETS_VAULT_MASTER_KEY is mandatory, unlike synthetics' above.
+  export-targets:
+    logging: *default-logging
+    security_opt:
+      - "no-new-privileges:true"
+    image: ghcr.io/lloyd-theophilus/kubewatch-export-targets:latest
+    mem_limit: 128m
+    mem_reservation: 64m
+    environment:
+      <<: *env-defaults
+      PORT: "8026"
+      KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
+      EXPORT_TARGETS_VAULT_MASTER_KEY: ${EXPORT_TARGETS_VAULT_MASTER_KEY}
+      VICTORIAMETRICS_INSERT_URL: http://victoriametrics:8428
+      VICTORIAMETRICS_SELECT_URL: http://victoriametrics:8428
     restart: unless-stopped
     depends_on:
       postgres:
