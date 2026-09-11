@@ -18,6 +18,86 @@ x-logging: &default-logging
 x-env-defaults: &env-defaults
   DATABASE_URL: postgres://kubewatch:${DB_PASSWORD}@postgres:5432/kubewatch?sslmode=require
 
+# Every Mimir component (distributor/ingester/querier/query-frontend/
+# query-scheduler/compactor/store-gateway, defined further down) shares this
+# same image + mimir.yaml mount + MinIO credentials, differing only in
+# `-target=<component>` on its own `command:` -- avoids repeating
+# image/logging/security_opt/environment/volumes/depends_on/restart 7 times.
+# Merged into each mimir-* service below via YAML's `<<:` merge key (same
+# pattern as x-env-defaults above); a service's own `command:`, and for the
+# 3 stateful ones its own extra data volume, are additions alongside this
+# anchor, never overridden by it.
+#
+# MIMIR_S3_* point at the bundled minio service below by default.
+# docker-compose.saas.yml's mimir-* overlay replaces all three (plus
+# MIMIR_S3_INSECURE) to point at real AWS S3 instead -- see mimir.yaml's own
+# header comment.
+#
+# depends_on's `required: false` matters even for THIS file alone: minio-init
+# below is gated behind the "selfhost-storage" profile (see its own comment
+# for why and how that profile gets activated), which is inactive by
+# default. Without `required: false`, `docker compose -f
+# docker-compose.selfhost.yml config` would refuse to resolve at all
+# whenever that profile isn't active ("service ... depends on undefined
+# service minio-init") -- verified empirically. With it, an inactive profile
+# just means minio-init is treated as absent (Compose skips the wait); when
+# the profile IS active, `required: false` has no effect on ordering --
+# every mimir-* component still waits for minio-init to actually complete
+# before starting, exactly as if it were required. docker-compose.saas.yml's
+# overlay goes further still (depends_on: !reset {}), since SaaS never runs
+# minio at all regardless of whether that profile happens to be active in
+# its own environment.
+x-mimir-common: &mimir-common
+  logging: *default-logging
+  security_opt:
+    - "no-new-privileges:true"
+  image: grafana/mimir:latest
+  environment:
+    MIMIR_S3_ENDPOINT: minio:9000
+    MIMIR_S3_ACCESS_KEY: ${MINIO_ROOT_USER}
+    MIMIR_S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+  volumes:
+    - ./mimir.yaml:/etc/mimir/mimir.yaml:ro
+  depends_on:
+    minio-init:
+      condition: service_completed_successfully
+      required: false
+  restart: unless-stopped
+
+# Every Loki component (distributor/ingester/querier/query-frontend/
+# query-scheduler/compactor/index-gateway, defined further down) shares
+# this same image + loki.yaml mount + MinIO credentials, differing only in
+# `-target=<component>` on its own `command:` -- same shape as
+# x-mimir-common above. LOKI_S3_INSECURE/LOKI_S3_FORCE_PATH_STYLE point at
+# the bundled MinIO (plain HTTP, path-style bucket addressing) by default;
+# docker-compose.saas.yml's loki-* overlay replaces all five (S3 endpoint/
+# credentials plus both flags) to point at real AWS S3 instead -- see
+# loki.yaml's own header comment for why these two flags are pushed in
+# from here rather than templated with an in-file default the way Mimir's
+# MIMIR_S3_INSECURE is.
+#
+# depends_on's `required: false` matters here for the same reason as
+# x-mimir-common's own comment above -- minio-init is gated behind the
+# "selfhost-storage" profile, inactive by default.
+x-loki-common: &loki-common
+  logging: *default-logging
+  security_opt:
+    - "no-new-privileges:true"
+  image: grafana/loki:3.1.1
+  environment:
+    LOKI_S3_ENDPOINT: minio:9000
+    LOKI_S3_ACCESS_KEY: ${MINIO_ROOT_USER}
+    LOKI_S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+    LOKI_S3_INSECURE: "true"
+    LOKI_S3_FORCE_PATH_STYLE: "true"
+  volumes:
+    - ./loki.yaml:/etc/loki/loki.yaml:ro
+  depends_on:
+    minio-init:
+      condition: service_completed_successfully
+      required: false
+  restart: unless-stopped
+
 services:
   caddy:
     logging: *default-logging
@@ -162,8 +242,9 @@ services:
       INGESTION_PORT: "8002"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
       NATS_URL: nats://nats:4222
-      VICTORIAMETRICS_INSERT_URL: http://victoriametrics:8428
-      VICTORIALOGS_URL: http://victorialogs:9428
+      MIMIR_WRITE_URL: http://mimir-distributor:8080
+      LOKI_WRITE_URL: http://loki-distributor:3100
+      LOKI_READ_URL: http://loki-query-frontend:3100
       AUTH_SERVICE_URL: http://auth:8001
     restart: unless-stopped
     depends_on:
@@ -184,9 +265,10 @@ services:
       QUERY_PORT: "8003"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
       APP_VERSION: ${APP_VERSION:-dev}
-      VICTORIAMETRICS_SELECT_URL: http://victoriametrics:8428
-      VICTORIAMETRICS_INSERT_URL: http://victoriametrics:8428
-      VICTORIALOGS_URL: http://victorialogs:9428
+      MIMIR_READ_URL: http://mimir-query-frontend:8080
+      MIMIR_WRITE_URL: http://mimir-distributor:8080
+      LOKI_WRITE_URL: http://loki-distributor:3100
+      LOKI_READ_URL: http://loki-query-frontend:3100
       NATS_URL: nats://nats:4222
       NOTIFICATION_SERVICE_URL: http://notification:8007
       LICENSE_SERVER_URL: ${LICENSE_SERVER_URL:-https://licenses.kubewatchlabs.com}
@@ -238,7 +320,7 @@ services:
       <<: *env-defaults
       ALERT_ENGINE_PORT: "8005"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
-      VICTORIAMETRICS_SELECT_URL: http://victoriametrics:8428
+      MIMIR_READ_URL: http://mimir-query-frontend:8080
       NATS_URL: nats://nats:4222
       EVAL_INTERVAL: "30s"
     restart: unless-stopped
@@ -259,7 +341,7 @@ services:
       <<: *env-defaults
       SCALING_ENGINE_PORT: "8012"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
-      VICTORIAMETRICS_SELECT_URL: http://victoriametrics:8428
+      MIMIR_READ_URL: http://mimir-query-frontend:8080
       NATS_URL: nats://nats:4222
       SCALE_INTERVAL: "30s"
     restart: unless-stopped
@@ -286,8 +368,9 @@ services:
       # Its own interval knob, deliberately not the shared EVAL_INTERVAL that
       # alert-engine uses — see services/agent-ops/main.go.
       AGENT_OPS_EVAL_INTERVAL: ${AGENT_OPS_EVAL_INTERVAL:-30s}
-      VICTORIAMETRICS_SELECT_URL: http://victoriametrics:8428
-      VICTORIALOGS_URL: http://victorialogs:9428
+      MIMIR_READ_URL: http://mimir-query-frontend:8080
+      LOKI_WRITE_URL: http://loki-distributor:3100
+      LOKI_READ_URL: http://loki-query-frontend:3100
     restart: unless-stopped
     depends_on:
       postgres:
@@ -308,7 +391,7 @@ services:
       WORKLOAD_ADVISOR_PORT: "8015"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
       WORKLOAD_ADVISOR_ANALYSIS_INTERVAL: ${WORKLOAD_ADVISOR_ANALYSIS_INTERVAL:-24h}
-      VICTORIAMETRICS_SELECT_URL: http://victoriametrics:8428
+      MIMIR_READ_URL: http://mimir-query-frontend:8080
       LIVE_DATA_SERVICE_URL: http://live-data:8009
     restart: unless-stopped
     depends_on:
@@ -414,7 +497,7 @@ services:
       <<: *env-defaults
       PORT: "8008"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
-      VICTORIAMETRICS_INSERT_URL: http://victoriametrics:8428
+      MIMIR_WRITE_URL: http://mimir-distributor:8080
       CLUSTERS_VAULT_MASTER_KEY: ${CLUSTERS_VAULT_MASTER_KEY}
     volumes:
       - ~/.kube:/root/.kube:ro
@@ -513,8 +596,8 @@ services:
       PORT: "8026"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
       EXPORT_TARGETS_VAULT_MASTER_KEY: ${EXPORT_TARGETS_VAULT_MASTER_KEY}
-      VICTORIAMETRICS_INSERT_URL: http://victoriametrics:8428
-      VICTORIAMETRICS_SELECT_URL: http://victoriametrics:8428
+      MIMIR_WRITE_URL: http://mimir-distributor:8080
+      MIMIR_READ_URL: http://mimir-query-frontend:8080
     restart: unless-stopped
     depends_on:
       postgres:
@@ -562,7 +645,8 @@ services:
       PORT: "8019"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
       NATS_URL: nats://nats:4222
-      VICTORIALOGS_URL: http://victorialogs:9428
+      LOKI_WRITE_URL: http://loki-distributor:3100
+      LOKI_READ_URL: http://loki-query-frontend:3100
       IAC_VAULT_MASTER_KEY: ${IAC_VAULT_MASTER_KEY}
     restart: unless-stopped
     depends_on:
@@ -605,7 +689,8 @@ services:
       PORT: "8020"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
       NATS_URL: nats://nats:4222
-      VICTORIALOGS_URL: http://victorialogs:9428
+      LOKI_WRITE_URL: http://loki-distributor:3100
+      LOKI_READ_URL: http://loki-query-frontend:3100
       IAC_VAULT_MASTER_KEY: ${IAC_VAULT_MASTER_KEY}
     restart: unless-stopped
     depends_on:
@@ -707,8 +792,9 @@ services:
       PORT: "8023"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
       NATS_URL: nats://nats:4222
-      VICTORIALOGS_URL: http://victorialogs:9428
-      VICTORIAMETRICS_SELECT_URL: http://victoriametrics:8428
+      LOKI_WRITE_URL: http://loki-distributor:3100
+      LOKI_READ_URL: http://loki-query-frontend:3100
+      MIMIR_READ_URL: http://mimir-query-frontend:8080
       DEVOPS_AGENT_VAULT_MASTER_KEY: ${DEVOPS_AGENT_VAULT_MASTER_KEY}
       DEVOPS_AGENT_MAX_DIAGNOSES_PER_HOUR: ${DEVOPS_AGENT_MAX_DIAGNOSES_PER_HOUR:-20}
       # Log Intelligence spec's "embedded" provider tier: every install gets
@@ -802,7 +888,7 @@ services:
       - embedded_llm_models:/root/.cache/llama.cpp
     # Deliberately no `ports:` -- reached only from devops-agent over the
     # compose network, same "no exposed ports beyond what's needed" posture
-    # as postgres/nats/victoriametrics in this file.
+    # as postgres/nats/the mimir-* components in this file.
     restart: unless-stopped
 
   integrations:
@@ -1256,41 +1342,283 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
 
-  victoriametrics:
+  # Metrics store: Grafana Mimir in full microservices deployment mode
+  # (distributor/ingester/querier/query-frontend/query-scheduler/compactor/
+  # store-gateway below), replacing the old single-container
+  # victoriametrics: block above. Per-tenant isolation is Mimir's own
+  # X-Scope-OrgID header enforcement (shared/tsdb/client.go), not a label
+  # convention. Single replica per component (not HA) -- see mimir.yaml's
+  # own header comment for what real HA would additionally need.
+  #
+  # S3-compatible object storage backing every component's blocks
+  # (mimir.yaml's common.storage.s3, bucket_name: mimir-blocks).
+  # docker-compose.saas.yml's mimir-* overlay points at real AWS S3 instead
+  # and never runs minio/minio-init at all -- see mimir.yaml's own header
+  # comment.
+  #
+  # Gated behind the "selfhost-storage" Compose profile, defined here but
+  # inactive by default -- see x-mimir-common's own comment above for why
+  # that doesn't break this file's `config` validation even so. Activate it
+  # for a real self-hosted install with EITHER:
+  #   docker compose --profile selfhost-storage -f docker-compose.selfhost.yml up -d
+  # OR by setting, once, in this directory's own .env:
+  #   COMPOSE_PROFILES=selfhost-storage
+  # Skip both and every mimir-* component below still starts, but every
+  # metrics write/read fails: the bucket is never created because minio
+  # itself never runs.
+  minio:
     logging: *default-logging
     security_opt:
       - "no-new-privileges:true"
-    image: victoriametrics/victoria-metrics:latest
-    mem_limit: 2g
-    mem_reservation: 512m
-    command:
-      - -retentionPeriod=365d
-      - -storageDataPath=/victoria-metrics-data
-    volumes:
-      - vm_data:/victoria-metrics-data
-    restart: unless-stopped
-
-  # Log-oriented sibling of victoriametrics above: holds AI agent spans and
-  # continuously-collected container/pod logs (see services/ingestion's
-  # startBulkLogsWriter and startTSDBWriter). Present in the local dev
-  # compose since these features were built, but missing here until now —
-  # ingestion/query fall back to this exact hostname when VICTORIALOGS_URL
-  # isn't set, so without this service those features 500 on every request.
-  victorialogs:
-    logging: *default-logging
-    security_opt:
-      - "no-new-privileges:true"
-    image: victoriametrics/victoria-logs:latest
+    image: minio/minio:latest
     mem_limit: 1g
     mem_reservation: 256m
-    command:
-      # 90d so the Pod/Container detail pages' longest log-history range
-      # option isn't decorative — bumped from 30d alongside those pages.
-      - -retentionPeriod=90d
-      - -storageDataPath=/victoria-logs-data
+    profiles: ["selfhost-storage"]
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     volumes:
-      - vl_data:/victoria-logs-data
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     restart: unless-stopped
+
+  # One-shot: creates the mimir-blocks bucket, then exits. Every mimir-*
+  # component depends on this completing successfully (x-mimir-common
+  # above) before it starts writing/reading. Same "selfhost-storage" profile
+  # as minio above -- see that service's comment for how it's activated.
+  minio-init:
+    logging: *default-logging
+    security_opt:
+      - "no-new-privileges:true"
+    image: minio/mc:latest
+    profiles: ["selfhost-storage"]
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD} &&
+      mc mb --ignore-existing local/mimir-blocks &&
+      mc mb --ignore-existing local/loki-chunks
+      "
+    restart: "no"
+
+  # Stateless -- accepts remote_write pushes (MIMIR_WRITE_URL below points
+  # every service at this one). No local storage of its own.
+  mimir-distributor:
+    <<: *mimir-common
+    mem_limit: 512m
+    mem_reservation: 256m
+    command: ["-config.file=/etc/mimir/mimir.yaml", "-config.expand-env=true", "-target=distributor"]
+    # exposed to other containers on the compose network at :8080 -- this is
+    # MIMIR_WRITE_URL for every other service below, never published to the
+    # host (see this file's "no exposed ports beyond what's needed"
+    # convention, same as postgres/nats/the rest of these mimir-* services).
+
+  # Holds recently-ingested samples in memory + WAL before shipping blocks to
+  # object storage -- the most memory-hungry component (sizing mirrors
+  # installer/helm/kubewatch-erp/values.yaml's mimir.ingester.resources for
+  # the same reason every component below mirrors its Helm counterpart: this
+  # is the same architecture, just Compose instead of Kubernetes).
+  mimir-ingester:
+    <<: *mimir-common
+    mem_limit: 3g
+    mem_reservation: 1g
+    command: ["-config.file=/etc/mimir/mimir.yaml", "-config.expand-env=true", "-target=ingester"]
+    volumes:
+      - ./mimir.yaml:/etc/mimir/mimir.yaml:ro
+      - mimir_ingester_data:/data
+
+  # Stateless -- serves queries, connects to mimir-query-frontend only
+  # through mimir-query-scheduler (see mimir.yaml's own comment on why).
+  mimir-querier:
+    <<: *mimir-common
+    mem_limit: 512m
+    mem_reservation: 256m
+    command: ["-config.file=/etc/mimir/mimir.yaml", "-config.expand-env=true", "-target=querier", "-querier.scheduler-address=mimir-query-scheduler:9095"]
+
+  # Stateless -- the query entrypoint (MIMIR_READ_URL below points every
+  # service at this one), merges/caches results but does no heavy lifting
+  # itself; connects to mimir-querier only through mimir-query-scheduler.
+  mimir-query-frontend:
+    <<: *mimir-common
+    mem_limit: 256m
+    mem_reservation: 128m
+    command: ["-config.file=/etc/mimir/mimir.yaml", "-config.expand-env=true", "-target=query-frontend", "-query-frontend.scheduler-address=mimir-query-scheduler:9095"]
+    # exposed to other containers on the compose network at :8080 -- this is
+    # MIMIR_READ_URL for every other service below.
+
+  # Thin queueing layer between mimir-query-frontend and mimir-querier --
+  # required by this Mimir version (no direct frontend<->querier mode), but
+  # does no heavy lifting itself.
+  mimir-query-scheduler:
+    <<: *mimir-common
+    mem_limit: 128m
+    mem_reservation: 64m
+    command: ["-config.file=/etc/mimir/mimir.yaml", "-config.expand-env=true", "-target=query-scheduler"]
+
+  # CPU-heavy block-merge work; its own volume is working-directory scratch
+  # space, not a long-term store.
+  mimir-compactor:
+    <<: *mimir-common
+    mem_limit: 1g
+    mem_reservation: 512m
+    command: ["-config.file=/etc/mimir/mimir.yaml", "-config.expand-env=true", "-target=compactor"]
+    volumes:
+      - ./mimir.yaml:/etc/mimir/mimir.yaml:ro
+      - mimir_compactor_data:/data
+
+  # Loads block index-headers into memory to serve historical queries --
+  # its own volume backs that cache.
+  mimir-store-gateway:
+    <<: *mimir-common
+    mem_limit: 2g
+    mem_reservation: 1g
+    command: ["-config.file=/etc/mimir/mimir.yaml", "-config.expand-env=true", "-target=store-gateway"]
+    volumes:
+      - ./mimir.yaml:/etc/mimir/mimir.yaml:ro
+      - mimir_store_gateway_data:/data
+
+  # Log-oriented sibling of the mimir-* services above: holds AI agent spans
+  # and continuously-collected container/pod logs (see services/ingestion's
+  # startBulkLogsWriter and startTSDBWriter). Replaces the single-container
+  # victorialogs: block above with full microservices-mode Loki, same
+  # migration mimir-* above went through for metrics -- ingestion/query
+  # (and every other consumer) now point at LOKI_WRITE_URL/LOKI_READ_URL
+  # instead. Per-tenant isolation is Loki's own X-Scope-OrgID header
+  # enforcement (shared/tsdb/logs_client.go), not a label convention. See
+  # loki.yaml's own header comment for what real HA would additionally
+  # need. No loki-ruler, same reasoning as no mimir-ruler.
+  #
+  # S3-compatible object storage backing every component's chunks (loki.
+  # yaml's common.storage.s3, bucketnames: loki-chunks) -- same bundled
+  # MinIO the mimir-* components above use, same "selfhost-storage" profile
+  # gate, same docker-compose.saas.yml override to real AWS S3 instead. See
+  # x-mimir-common's own comment above for how that profile gets activated
+  # and why `depends_on`'s `required: false` matters even when it isn't.
+  #
+  # Stateless -- accepts push writes (LOKI_WRITE_URL below points every
+  # service at this one). No local storage of its own.
+  loki-distributor:
+    <<: *loki-common
+    mem_limit: 512m
+    mem_reservation: 256m
+    command: ["-config.file=/etc/loki/loki.yaml", "-config.expand-env=true", "-target=distributor"]
+    # exposed to other containers on the compose network at :3100 -- this is
+    # LOKI_WRITE_URL for every other service below, never published to the
+    # host (same "no exposed ports beyond what's needed" convention as the
+    # mimir-* services above).
+
+  # Holds recently-ingested log chunks in memory + WAL before shipping to
+  # object storage -- sizing mirrors installer/helm/kubewatch-erp/values.
+  # yaml's loki.ingester.resources for the same reason every component
+  # below mirrors its Helm counterpart.
+  loki-ingester:
+    <<: *loki-common
+    mem_limit: 2g
+    mem_reservation: 512m
+    command: ["-config.file=/etc/loki/loki.yaml", "-config.expand-env=true", "-target=ingester"]
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3100/ready"]
+      interval: 3s
+      timeout: 3s
+      retries: 15
+    volumes:
+      - ./loki.yaml:/etc/loki/loki.yaml:ro
+      - loki_ingester_data:/loki
+
+  # Stateless -- serves queries, connects to loki-query-frontend only
+  # through loki-query-scheduler (see loki.yaml's own comment on why).
+  loki-querier:
+    <<: *loki-common
+    mem_limit: 512m
+    mem_reservation: 256m
+    command: ["-config.file=/etc/loki/loki.yaml", "-config.expand-env=true", "-target=querier", "-querier.scheduler-address=loki-query-scheduler:9095"]
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
+        required: false
+      loki-query-scheduler:
+        condition: service_healthy
+      loki-ingester:
+        condition: service_healthy
+      loki-index-gateway:
+        condition: service_healthy
+
+  # Stateless -- the query entrypoint (LOKI_READ_URL below points every
+  # service at this one), merges/caches results but does no heavy lifting
+  # itself; connects to loki-querier only through loki-query-scheduler.
+  loki-query-frontend:
+    <<: *loki-common
+    mem_limit: 256m
+    mem_reservation: 128m
+    # NOT -query-frontend.scheduler-address -- different flag prefix than
+    # Mimir's equivalent; confirmed against this exact image's own -help
+    # output.
+    command: ["-config.file=/etc/loki/loki.yaml", "-config.expand-env=true", "-target=query-frontend", "-frontend.scheduler-address=loki-query-scheduler:9095"]
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
+        required: false
+      loki-query-scheduler:
+        condition: service_healthy
+      loki-ingester:
+        condition: service_healthy
+      loki-index-gateway:
+        condition: service_healthy
+    # exposed to other containers on the compose network at :3100 -- this is
+    # LOKI_READ_URL for every other service below.
+
+  # Thin queueing layer between loki-query-frontend and loki-querier --
+  # required by this Loki version (no direct frontend<->querier mode), but
+  # does no heavy lifting itself. Needs a healthcheck (unlike Mimir's
+  # equivalent): loki-querier/loki-query-frontend each open a persistent
+  # gRPC stream to this on startup, and that stream never retries if it
+  # fails once -- without gating both behind this being reachable first,
+  # every query hangs forever on a fresh `docker compose up` instead of
+  # erroring. Confirmed by actually cold-starting the stack repeatedly.
+  loki-query-scheduler:
+    <<: *loki-common
+    mem_limit: 128m
+    mem_reservation: 64m
+    command: ["-config.file=/etc/loki/loki.yaml", "-config.expand-env=true", "-target=query-scheduler"]
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3100/ready"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  # CPU-heavy chunk/index compaction work; its own volume is working-
+  # directory scratch space, not a long-term store.
+  loki-compactor:
+    <<: *loki-common
+    mem_limit: 1g
+    mem_reservation: 512m
+    command: ["-config.file=/etc/loki/loki.yaml", "-config.expand-env=true", "-target=compactor"]
+    volumes:
+      - ./loki.yaml:/etc/loki/loki.yaml:ro
+      - loki_compactor_data:/loki
+
+  # Serves index lookups for the querier (loki.yaml's index_gateway.mode:
+  # ring) -- its own volume backs the local index cache.
+  loki-index-gateway:
+    <<: *loki-common
+    mem_limit: 1g
+    mem_reservation: 512m
+    command: ["-config.file=/etc/loki/loki.yaml", "-config.expand-env=true", "-target=index-gateway"]
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3100/ready"]
+      interval: 3s
+      timeout: 3s
+      retries: 15
+    volumes:
+      - ./loki.yaml:/etc/loki/loki.yaml:ro
+      - loki_index_gateway_data:/loki
 
   nats:
     logging: *default-logging
@@ -1320,9 +1648,14 @@ services:
 volumes:
   postgres_data:
   pg_certs:
-  vm_data:
-  vl_data:
   nats_data:
   caddy_data:
   gateway_data:
   embedded_llm_models:
+  minio_data:
+  mimir_ingester_data:
+  mimir_compactor_data:
+  mimir_store_gateway_data:
+  loki_ingester_data:
+  loki_compactor_data:
+  loki_index_gateway_data:

@@ -117,6 +117,17 @@ install_self_hosted_erp() {
     ANALYTICS_VAULT_MASTER_KEY=$(grep '^ANALYTICS_VAULT_MASTER_KEY=' "${ENV_FILE}" | cut -d= -f2-)
     DEVOPS_AGENT_VAULT_MASTER_KEY=$(grep '^DEVOPS_AGENT_VAULT_MASTER_KEY=' "${ENV_FILE}" | cut -d= -f2-)
     CREDENTIALS_VAULT_MASTER_KEY=$(grep '^CREDENTIALS_VAULT_MASTER_KEY=' "${ENV_FILE}" | cut -d= -f2-)
+    CLOUD_VAULT_MASTER_KEY=$(grep '^CLOUD_VAULT_MASTER_KEY=' "${ENV_FILE}" | cut -d= -f2-)
+    INTEGRATIONS_VAULT_MASTER_KEY=$(grep '^INTEGRATIONS_VAULT_MASTER_KEY=' "${ENV_FILE}" | cut -d= -f2-)
+    PIPELINES_VAULT_MASTER_KEY=$(grep '^PIPELINES_VAULT_MASTER_KEY=' "${ENV_FILE}" | cut -d= -f2-)
+    DATAOPS_VAULT_MASTER_KEY=$(grep '^DATAOPS_VAULT_MASTER_KEY=' "${ENV_FILE}" | cut -d= -f2-)
+    NOTIFICATION_CHANNELS_VAULT_MASTER_KEY=$(grep '^NOTIFICATION_CHANNELS_VAULT_MASTER_KEY=' "${ENV_FILE}" | cut -d= -f2-)
+    CLUSTERS_VAULT_MASTER_KEY=$(grep '^CLUSTERS_VAULT_MASTER_KEY=' "${ENV_FILE}" | cut -d= -f2-)
+    VULNSCAN_VAULT_MASTER_KEY=$(grep '^VULNSCAN_VAULT_MASTER_KEY=' "${ENV_FILE}" | cut -d= -f2-)
+    EXPORT_TARGETS_VAULT_MASTER_KEY=$(grep '^EXPORT_TARGETS_VAULT_MASTER_KEY=' "${ENV_FILE}" | cut -d= -f2-)
+    SYNTHETICS_VAULT_MASTER_KEY=$(grep '^SYNTHETICS_VAULT_MASTER_KEY=' "${ENV_FILE}" | cut -d= -f2-)
+    MINIO_ROOT_USER=$(grep '^MINIO_ROOT_USER=' "${ENV_FILE}" | cut -d= -f2-)
+    MINIO_ROOT_PASSWORD=$(grep '^MINIO_ROOT_PASSWORD=' "${ENV_FILE}" | cut -d= -f2-)
     INTERNAL_SERVICE_TOKEN=$(grep '^INTERNAL_SERVICE_TOKEN=' "${ENV_FILE}" | cut -d= -f2-)
     REUSED_ENV=1
   fi
@@ -139,6 +150,33 @@ install_self_hosted_erp() {
   # Same reasoning again, for the Vault feature's stored login credentials
   # (see services/credentials) -- its own key, never shared with the others.
   CREDENTIALS_VAULT_MASTER_KEY="${CREDENTIALS_VAULT_MASTER_KEY:-$(openssl rand -base64 32)}"
+  # Same reasoning again, each its own key never shared with the others --
+  # services/cloud, services/integrations, services/pipelines (also read by
+  # services/webhook-gateway), services/dataops, services/notification (also
+  # read by services/query for the same notification_channels column),
+  # services/clusters, services/query's vulnerability-scanner config,
+  # services/export-targets, and services/synthetics (only needed for the
+  # Catchpoint check type -- unlike the others, synthetics itself doesn't
+  # fail closed without this one, but generate it anyway so it's never
+  # missing the moment someone adds a Catchpoint check). Every one of these
+  # (except synthetics) fails closed (log.Fatal) without its key, so a
+  # missing generation here isn't a disabled feature, it's a crash-looping
+  # container.
+  CLOUD_VAULT_MASTER_KEY="${CLOUD_VAULT_MASTER_KEY:-$(openssl rand -base64 32)}"
+  INTEGRATIONS_VAULT_MASTER_KEY="${INTEGRATIONS_VAULT_MASTER_KEY:-$(openssl rand -base64 32)}"
+  PIPELINES_VAULT_MASTER_KEY="${PIPELINES_VAULT_MASTER_KEY:-$(openssl rand -base64 32)}"
+  DATAOPS_VAULT_MASTER_KEY="${DATAOPS_VAULT_MASTER_KEY:-$(openssl rand -base64 32)}"
+  NOTIFICATION_CHANNELS_VAULT_MASTER_KEY="${NOTIFICATION_CHANNELS_VAULT_MASTER_KEY:-$(openssl rand -base64 32)}"
+  CLUSTERS_VAULT_MASTER_KEY="${CLUSTERS_VAULT_MASTER_KEY:-$(openssl rand -base64 32)}"
+  VULNSCAN_VAULT_MASTER_KEY="${VULNSCAN_VAULT_MASTER_KEY:-$(openssl rand -base64 32)}"
+  EXPORT_TARGETS_VAULT_MASTER_KEY="${EXPORT_TARGETS_VAULT_MASTER_KEY:-$(openssl rand -base64 32)}"
+  SYNTHETICS_VAULT_MASTER_KEY="${SYNTHETICS_VAULT_MASTER_KEY:-$(openssl rand -base64 32)}"
+  # MinIO (Mimir's object-storage backend) only sets its root credentials on
+  # first volume initialization, same non-regenerate-on-reinstall reasoning
+  # as DB_PASSWORD above -- a new password would fail to authenticate
+  # against the existing minio_data volume.
+  MINIO_ROOT_USER="${MINIO_ROOT_USER:-kubewatch}"
+  MINIO_ROOT_PASSWORD="${MINIO_ROOT_PASSWORD:-$(openssl rand -hex 16)}"
   # Shared secret gateway uses to authenticate to auth's internal
   # self-hosted-license endpoints (services/auth/selfhosted_license.go).
   # Preserved across reinstalls like the others above, though nothing
@@ -200,6 +238,23 @@ IAC_VAULT_MASTER_KEY=${IAC_VAULT_MASTER_KEY}
 ANALYTICS_VAULT_MASTER_KEY=${ANALYTICS_VAULT_MASTER_KEY}
 DEVOPS_AGENT_VAULT_MASTER_KEY=${DEVOPS_AGENT_VAULT_MASTER_KEY}
 CREDENTIALS_VAULT_MASTER_KEY=${CREDENTIALS_VAULT_MASTER_KEY}
+CLOUD_VAULT_MASTER_KEY=${CLOUD_VAULT_MASTER_KEY}
+INTEGRATIONS_VAULT_MASTER_KEY=${INTEGRATIONS_VAULT_MASTER_KEY}
+PIPELINES_VAULT_MASTER_KEY=${PIPELINES_VAULT_MASTER_KEY}
+DATAOPS_VAULT_MASTER_KEY=${DATAOPS_VAULT_MASTER_KEY}
+NOTIFICATION_CHANNELS_VAULT_MASTER_KEY=${NOTIFICATION_CHANNELS_VAULT_MASTER_KEY}
+CLUSTERS_VAULT_MASTER_KEY=${CLUSTERS_VAULT_MASTER_KEY}
+VULNSCAN_VAULT_MASTER_KEY=${VULNSCAN_VAULT_MASTER_KEY}
+EXPORT_TARGETS_VAULT_MASTER_KEY=${EXPORT_TARGETS_VAULT_MASTER_KEY}
+SYNTHETICS_VAULT_MASTER_KEY=${SYNTHETICS_VAULT_MASTER_KEY}
+MINIO_ROOT_USER=${MINIO_ROOT_USER}
+MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
+# Activates the minio/minio-init services in docker-compose.yml -- Mimir
+# (this install's metrics store) needs an object-storage backend, and a
+# from-scratch self-hosted install runs its own MinIO for that rather than
+# requiring a real S3 account. Read by `docker compose` itself, not by any
+# KubeWatch service.
+COMPOSE_PROFILES=selfhost-storage
 INTERNAL_SERVICE_TOKEN=${INTERNAL_SERVICE_TOKEN}
 APP_VERSION=${APP_VERSION}
 
