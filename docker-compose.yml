@@ -1370,7 +1370,7 @@ services:
     logging: *default-logging
     security_opt:
       - "no-new-privileges:true"
-    image: minio/minio:latest
+    image: quay.io/minio/minio:latest
     mem_limit: 1g
     mem_reservation: 256m
     profiles: ["selfhost-storage"]
@@ -1395,7 +1395,7 @@ services:
     logging: *default-logging
     security_opt:
       - "no-new-privileges:true"
-    image: minio/mc:latest
+    image: quay.io/minio/mc:latest
     profiles: ["selfhost-storage"]
     depends_on:
       minio:
