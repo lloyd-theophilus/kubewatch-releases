@@ -101,7 +101,15 @@ common:
       # bool"). Verified against this exact image by actually bringing the
       # stack up, not just `config`, which parses either form the same way.
       insecure: ${MIMIR_S3_INSECURE:true}
-      bucket_name: mimir-blocks
+      # Overridable via MIMIR_S3_BUCKET (same single-colon default syntax
+      # as above, correctly honored by Mimir's expander) -- S3 bucket names
+      # are globally unique across every AWS account, not just this one, so
+      # a real deployment can't always use this literal default name.
+      # docker-compose.saas.yml sets this from AWS_S3_MIMIR_BUCKET with no
+      # further fallback (must be set explicitly for a real S3 deploy);
+      # self-hosted's bundled MinIO keeps using this default unless
+      # overridden.
+      bucket_name: ${MIMIR_S3_BUCKET:mimir-blocks}
 
 blocks_storage:
   tsdb:

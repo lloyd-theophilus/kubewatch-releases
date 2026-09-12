@@ -127,7 +127,13 @@ common:
       # an empty bucket: Mimir's error was "bucket does not exist", i.e. it
       # already reached MinIO; Loki's was the DNS failure above).
       s3forcepathstyle: ${LOKI_S3_FORCE_PATH_STYLE}
-      bucketnames: loki-chunks
+      # No inline default here (unlike mimir.yaml's bucket_name) -- Loki's
+      # expander doesn't support one, same reasoning as this block's own
+      # LOKI_S3_INSECURE comment above. docker-compose.selfhost.yml sets
+      # LOKI_S3_BUCKET with the actual default instead;
+      # docker-compose.saas.yml sets it from AWS_S3_LOKI_BUCKET with no
+      # further fallback (must be set explicitly for a real S3 deploy).
+      bucketnames: ${LOKI_S3_BUCKET}
 
 # "simple" (the default) expects a fixed, individually-configured address
 # for the index-gateway client and never consults the ring at all; "ring"
