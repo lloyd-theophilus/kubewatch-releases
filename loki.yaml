@@ -105,6 +105,18 @@ common:
       # before the container ever starts) sidesteps this entirely
       # regardless of which binary's expander is in play.
       endpoint: ${LOKI_S3_ENDPOINT}
+      # Confirmed the hard way against real AWS S3 in production: left
+      # unset, Loki's (older, aws-sdk-go v1 based) S3 client signs every
+      # request with a hardcoded placeholder region of "dummy" -- harmless
+      # against MinIO (which doesn't validate SigV4 region), but real S3
+      # rejects every request outright with AuthorizationHeaderMalformed
+      # ("the region 'dummy' is wrong; expecting '<real region>'"), which
+      # surfaces as silent, permanently-failed chunk flushes (ingester logs
+      # "failed to flush ... terminated after 10 retries"), not a crash --
+      # the container stays "Up" and healthy-looking while quietly dropping
+      # log data. Mimir's own S3 client (Thanos-derived, minio-go based)
+      # doesn't have this failure mode and needs no equivalent field.
+      region: ${LOKI_S3_REGION}
       access_key_id: ${LOKI_S3_ACCESS_KEY}
       secret_access_key: ${LOKI_S3_SECRET_KEY}
       insecure: ${LOKI_S3_INSECURE}
