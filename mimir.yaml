@@ -14,6 +14,18 @@
 # architecture change.
 multitenancy_enabled: true
 
+# Anonymous usage reporting to Grafana Labs, unrelated to the actual metrics
+# storage this exists to run -- not something a customer's own KubeWatch
+# instance should send. Disabling it also sidesteps a real, confirmed bug:
+# with it left on (Mimir's own default), ingester/compactor/querier/store-
+# gateway each try to build their own S3 bucket client for this module's
+# cluster-seed blob independently of blocks_storage's own client below, and
+# in real production traffic that failed outright with "no s3 endpoint in
+# config file" -- distributor/query-frontend/query-scheduler never hit it
+# only because their -target mode doesn't initialize this module at all.
+usage_stats:
+  enabled: false
+
 server:
   http_listen_port: 8080
   grpc_listen_port: 9095
