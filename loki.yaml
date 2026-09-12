@@ -1,0 +1,171 @@
+# Shared config for every Loki component container in
+# installer/docker-compose.selfhost.yml (self-hosted install) and, with the
+# S3 credentials below overridden, installer/docker-compose.saas.yml (the
+# SaaS overlay applied on top of it). Each component runs this same image +
+# config, differentiated only by `-target=<component>` in its command. Env
+# vars are expanded via `-config.expand-env=true`.
+#
+# Mirrors mimir.yaml's shape (this repo's earlier metrics-store migration to
+# Mimir) exactly where the two products' config schemas line up. Where they
+# don't, see the comments below -- Loki 3.1.1 is close enough to Mimir to be
+# a trap: several fields that look identical actually behave differently
+# under the same image/flag conventions, confirmed by actually running
+# grafana/loki:3.1.1 (not just reading docs), and are called out inline so
+# nobody "simplifies" this back to the Mimir shape later.
+#
+# Single replica per component (not HA) -- same reasoning as mimir.yaml:
+# this proves out the microservices topology (distributor/ingester/querier/
+# query-frontend/compactor/index-gateway as separate processes talking over
+# the ring, plus query-scheduler mediating query-frontend<->querier) without
+# provisioning real redundancy. No loki-ruler -- this codebase's own
+# alert-engine already owns rule evaluation, same reasoning already applied
+# to Mimir (no mimir-ruler either).
+auth_enabled: true
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9095
+  log_level: warn
+
+# Gossip-based ring membership, same pattern as mimir.yaml's memberlist
+# block. UNLIKE Mimir, though, Loki's own ring components default their
+# kvstore backend to "consul" (confirmed via `-<component>.ring.store
+# string ... (default "consul")` in the image's own -help output), not
+# "memberlist" -- Mimir's equivalent flags default to "memberlist" already,
+# which is the only reason mimir.yaml gets away with not setting this
+# explicitly. Without common.ring.kvstore.store below, every ring-backed
+# component here would try to dial a consul agent at localhost:8500 that
+# doesn't exist, and the ring would simply never form -- confirmed by
+# actually hitting this failure mode against a running stack.
+memberlist:
+  join_members:
+    - loki-distributor:7946
+    - loki-ingester:7946
+    - loki-querier:7946
+    - loki-compactor:7946
+    - loki-index-gateway:7946
+    - loki-query-scheduler:7946
+
+common:
+  # Not an S3 path -- this is a local filesystem prefix inside each
+  # container for WAL/cache/working-directory state (ingester's WAL,
+  # compactor's working directory, index-gateway's index cache), the
+  # equivalent of mimir.yaml's blocks_storage.tsdb.dir / bucket_store.
+  # sync_dir / compactor.data_dir all being set individually -- Loki's
+  # common.path_prefix convention covers all of those in one field instead.
+  # Must be /loki, not e.g. /data/loki: the grafana/loki image runs as a
+  # non-root `loki` user (uid 10001) that owns /loki (with /loki/rules and
+  # /loki/rules-temp already pre-created in the image) but does NOT own /,
+  # so any prefix outside the pre-existing /loki directory fails with
+  # "mkdir ...: permission denied" at startup -- confirmed by actually
+  # running the image. The 3 stateful components below (ingester/compactor/
+  # index-gateway) each mount their own named volume at exactly /loki so
+  # this pre-baked ownership carries over to the volume.
+  path_prefix: /loki
+
+  replication_factor: 1
+
+  # Same reasoning as memberlist above: without this, every one of
+  # ingester's/compactor's/index-gateway's/query-scheduler's own ring
+  # configs falls back to its individual default ("consul") instead of
+  # inheriting memberlist. Confirmed by actually bringing up all 7
+  # components and checking each one's resolved kvstore.store value.
+  ring:
+    kvstore:
+      store: memberlist
+
+  # Required or querier/query-frontend fail their own startup outright
+  # ("query filtering for deletes requires 'compactor_grpc_address' or
+  # 'compactor_address' to be configured", confirmed by actually running
+  # both targets without this set) -- unrelated to whether retention/
+  # deletion is ever used. Mimir has no equivalent requirement; this is a
+  # Loki-only wrinkle discovered by running the 7 targets end-to-end, not
+  # something documented anywhere obvious.
+  compactor_address: http://loki-compactor:3100
+
+  storage:
+    s3:
+      # LOKI_S3_* and LOKI_S3_FORCE_PATH_STYLE are always given a concrete
+      # value by every deploy surface's own environment block (this file's
+      # own x-loki-common in docker-compose.selfhost.yml, docker-compose.
+      # saas.yml's loki-* overlay, root docker-compose.yml's own
+      # x-loki-common) -- so a bare ${VAR} substitution is all that's
+      # needed, deliberately NOT Mimir's `${VAR:default}` single-colon
+      # in-file default syntax (see this directory's own mimir.yaml comment
+      # on that, and its `insecure: ${MIMIR_S3_INSECURE:true}`). Confirmed
+      # by actually testing Loki 3.1.1's own -config.expand-env against
+      # unset vars with both an int and a bool field: unlike Mimir's
+      # expander, Loki's leaves an unset var as a literal empty string with
+      # NO default fallback at all (it happens to decode as each field's Go
+      # zero-value, not the value after the colon) -- so relying on
+      # `${LOKI_S3_INSECURE:true}` here the way mimir.yaml does would
+      # silently produce `false`/`0`/"" instead, not the intended default.
+      # Pushing every default into each compose file's own environment
+      # block (plain bash `${VAR:-default}`, resolved by Compose itself
+      # before the container ever starts) sidesteps this entirely
+      # regardless of which binary's expander is in play.
+      endpoint: ${LOKI_S3_ENDPOINT}
+      access_key_id: ${LOKI_S3_ACCESS_KEY}
+      secret_access_key: ${LOKI_S3_SECRET_KEY}
+      insecure: ${LOKI_S3_INSECURE}
+      # Self-hosted's own x-loki-common anchor points these three at the
+      # bundled MinIO and sets this true (plain HTTP, matching MinIO's own
+      # unencrypted listener) and s3forcepathstyle true alongside it (see
+      # below). docker-compose.saas.yml's loki-* overlay points LOKI_S3_*
+      # at real AWS S3 instead and sets both false -- leaving either true
+      # against a real HTTPS-only, virtual-hosted-style endpoint breaks
+      # every write/read.
+      #
+      # MinIO needs path-style bucket addressing (http://host:port/bucket/
+      # ...); real AWS S3 needs the opposite (virtual-hosted-style,
+      # bucket.host:port/...). Confirmed the hard way: with this false
+      # against MinIO, every component tried to resolve
+      # "loki-chunks.minio:9000" as a hostname and failed outright ("no
+      # such host") instead of talking to MinIO at all. Mimir needs no
+      # equivalent flag against the same MinIO -- its S3 client defaults
+      # differently (confirmed by running both images side by side against
+      # an empty bucket: Mimir's error was "bucket does not exist", i.e. it
+      # already reached MinIO; Loki's was the DNS failure above).
+      s3forcepathstyle: ${LOKI_S3_FORCE_PATH_STYLE}
+      bucketnames: loki-chunks
+
+# "simple" (the default) expects a fixed, individually-configured address
+# for the index-gateway client and never consults the ring at all; "ring"
+# makes querier/compactor discover index-gateway the same way they discover
+# everything else here (common.ring.kvstore above). Without this, queries
+# hang indefinitely (the request never even reaches query-scheduler's
+# queue) rather than erroring -- confirmed by actually issuing a query
+# end-to-end and diagnosing the hang via the querier's own /debug/pprof/
+# goroutine dump before finding this fix.
+index_gateway:
+  mode: ring
+
+# store: tsdb / object_store: s3 / schema: v13 are the current-recommended
+# values for a new Loki install -- also confirmed as a second, independent
+# reference point already committed in this repo: services/iac/
+# blueprints_data.go's "Logging stack (Loki + Promtail)" IaC blueprint
+# writes this exact same schema_config shape for a customer-facing
+# single-binary Loki install.
+schema_config:
+  configs:
+    - from: "2024-01-01"
+      store: tsdb
+      object_store: s3
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+limits_config:
+  # Default is 1w (confirmed via the image's own -help:
+  # "-validation.reject-old-samples.max-age ... (default 1w)"), too short
+  # for a deliberate historical backfill run. 90d matches mimir.yaml's own
+  # ingester.limits.out_of_order_time_window reasoning in spirit (generous
+  # headroom for catch-up writes) even though the two fields aren't the
+  # same mechanism.
+  reject_old_samples_max_age: 90d
+  # Already the image's own default (confirmed via -help:
+  # "-validation.allow-structured-metadata ... (default true)") -- set
+  # explicitly for the same reason mimir.yaml sets multitenancy_enabled:
+  # true explicitly rather than relying on the flag default.
+  allow_structured_metadata: true

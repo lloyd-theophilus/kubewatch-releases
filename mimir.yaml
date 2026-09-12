@@ -1,0 +1,102 @@
+# Shared config for every Mimir component container in
+# installer/docker-compose.selfhost.yml (self-hosted install) and, with the
+# S3 credentials below overridden, installer/docker-compose.saas.yml (the
+# SaaS overlay applied on top of it). Each component runs this same image +
+# config, differentiated only by `-target=<component>` in its command. Env
+# vars are expanded via `-config.expand-env=true`.
+#
+# Single replica per component (not HA) -- this proves out the microservices
+# topology (distributor/ingester/querier/query-frontend/compactor/
+# store-gateway as separate processes talking over the ring) without
+# provisioning real redundancy, which would mean 3+ ingesters and
+# replication_factor: 3. Bumping to real HA later is a config change here
+# (replication_factor, more replicas of each stateless component), not an
+# architecture change.
+multitenancy_enabled: true
+
+server:
+  http_listen_port: 8080
+  grpc_listen_port: 9095
+  log_level: warn
+
+# Gossip-based ring membership -- every component that participates in any
+# ring (distributor+ingester's write-path ring, store-gateway's block-shard
+# ring, compactor's ring) joins the same gossip cluster. No external
+# dependency (etcd/consul) needed for a single-environment deployment.
+memberlist:
+  join_members:
+    - mimir-distributor:7946
+    - mimir-ingester:7946
+    - mimir-querier:7946
+    - mimir-compactor:7946
+    - mimir-store-gateway:7946
+    - mimir-query-scheduler:7946
+
+ingester:
+  ring:
+    replication_factor: 1
+
+# Default out-of-order window is 0, enforced per-tenant: once any sample
+# lands for an org, any later write more than a couple hours older than
+# that org's current watermark is rejected outright (err-mimir-sample-
+# out-of-order), and ingestion/service.go's tsdb writer only logs that
+# error and drops the batch -- no retry, no dead-letter. This directly
+# collides with the edge-device store-and-forward buffer (AI-Ops Feature
+# 6, agent/internal/buffer): its ring buffer is capped at 1000 snapshots
+# with no age-based expiry, and the agent's push interval is 2 minutes
+# (agent/cmd/agent/main.go), so a device that reconnects after being
+# offline for up to ~33h can legitimately replay samples that old -- the
+# "expected offline windows" feature (services/alert-engine/edge_devices.go)
+# exists specifically because outages of that length are a supported,
+# not exceptional, scenario. 48h covers the full buffer-capped worst case
+# with margin.
+limits:
+  out_of_order_time_window: 48h
+
+# Mimir 3.x has no direct frontend<->querier mode -- query-frontend and
+# querier both connect through a query-scheduler instead. The exact YAML
+# key for each component's scheduler address didn't match either the
+# published docs or this image's own error messages consistently enough to
+# trust blindly, so those two settings are passed as explicit CLI flags on
+# the querier/query-frontend services in docker-compose.selfhost.yml
+# instead (-querier.scheduler-address / -query-frontend.scheduler-address
+# -- confirmed against this exact image's own `-help-all` output).
+
+common:
+  storage:
+    backend: s3
+    s3:
+      endpoint: ${MIMIR_S3_ENDPOINT}
+      access_key_id: ${MIMIR_S3_ACCESS_KEY}
+      secret_access_key: ${MIMIR_S3_SECRET_KEY}
+      # Self-hosted's own x-mimir-common anchor points these three at the
+      # bundled MinIO and leaves this default (true = plain HTTP, matching
+      # MinIO's own unencrypted listener). docker-compose.saas.yml's mimir-*
+      # overlay points MIMIR_S3_* at real AWS S3 instead and sets
+      # MIMIR_S3_INSECURE=false alongside it -- leaving this true against a
+      # real HTTPS-only endpoint makes every write/read fail. Same flag,
+      # same reasoning, as this chart's Helm equivalent
+      # (installer/helm/kubewatch-erp/values.yaml's mimir.s3Insecure).
+      #
+      # Single colon, not bash's `:-` -- confirmed the hard way: Mimir's own
+      # -config.expand-env default-value syntax is `${NAME:default}`, NOT
+      # bash's `${NAME:-default}`. Writing the bash form here doesn't error
+      # or fall back sensibly -- Mimir's simpler expander splits on the
+      # first `:` and takes everything after it as the literal default, so
+      # `${MIMIR_S3_INSECURE:-true}` resolves (when the env var is unset) to
+      # the literal string "-true", not "true", which then fails to
+      # unmarshal as a bool at startup ("cannot unmarshal !!str `-true` into
+      # bool"). Verified against this exact image by actually bringing the
+      # stack up, not just `config`, which parses either form the same way.
+      insecure: ${MIMIR_S3_INSECURE:true}
+      bucket_name: mimir-blocks
+
+blocks_storage:
+  tsdb:
+    dir: /data/tsdb
+  bucket_store:
+    sync_dir: /data/tsdb-sync
+
+compactor:
+  data_dir: /data/compactor
+  compaction_interval: 30m

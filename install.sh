@@ -212,6 +212,18 @@ install_self_hosted_erp() {
   # Download the Compose file and the database migrations bundle.
   echo "Downloading docker-compose.yml..."
   curl -fsSL "${RELEASES}/docker-compose.yml" -o docker-compose.yml
+  # docker-compose.yml bind-mounts these two by relative path
+  # (./loki.yaml:/etc/loki/loki.yaml:ro, same for mimir.yaml) -- without
+  # them present on disk before `docker compose up`, Docker silently
+  # creates an empty DIRECTORY at that path instead of erroring, and both
+  # Loki and Mimir crash-loop on "failed parsing config: ... is a
+  # directory". Fetched every run alongside docker-compose.yml so an
+  # update always has the version matching the compose file it just
+  # downloaded, not a stale local copy.
+  echo "Downloading loki.yaml..."
+  curl -fsSL "${RELEASES}/loki.yaml" -o loki.yaml
+  echo "Downloading mimir.yaml..."
+  curl -fsSL "${RELEASES}/mimir.yaml" -o mimir.yaml
   echo "Downloading database migrations..."
   curl -fsSL "${RELEASES}/migrations.tar.gz" -o migrations.tar.gz
   tar -xzf migrations.tar.gz -C migrations && rm -f migrations.tar.gz
