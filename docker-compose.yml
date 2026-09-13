@@ -277,6 +277,9 @@ services:
       LICENSE_SERVER_URL: ${LICENSE_SERVER_URL:-https://licenses.kubewatchlabs.com}
       NOTIFICATION_CHANNELS_VAULT_MASTER_KEY: ${NOTIFICATION_CHANNELS_VAULT_MASTER_KEY}
       VULNSCAN_VAULT_MASTER_KEY: ${VULNSCAN_VAULT_MASTER_KEY}
+      # Authenticates this service's own call to notification's
+      # /internal/test-channel (see that handler's requireInternalServiceToken).
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN}
       # In-app "Update Now" runs `docker compose pull && up -d` from a detached
       # updater container. COMPOSE_DIR is the host path of this project so the
       # updater can bind-mount it; ${PWD} resolves to where compose was invoked.
@@ -456,6 +459,10 @@ services:
       # instance's own domain.
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
       NOTIFICATION_CHANNELS_VAULT_MASTER_KEY: ${NOTIFICATION_CHANNELS_VAULT_MASTER_KEY}
+      # Required on /internal/test-channel (see handleTestChannel's
+      # requireInternalServiceToken) -- the same secret every other
+      # /internal/* route in this deployment already requires.
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN}
     restart: unless-stopped
     depends_on:
       postgres:
