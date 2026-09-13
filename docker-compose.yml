@@ -807,7 +807,7 @@ services:
       # only ever wants a paid BYOK provider) without removing the container.
       EMBEDDED_LLM_ENABLED: ${EMBEDDED_LLM_ENABLED:-true}
       EMBEDDED_LLM_URL: http://embedded-llm:8080/v1
-      EMBEDDED_LLM_MODEL: phi-4-mini-instruct
+      EMBEDDED_LLM_MODEL: Qwen2.5-7B-Instruct
     restart: unless-stopped
     depends_on:
       postgres:
@@ -815,13 +815,23 @@ services:
       nats:
         condition: service_healthy
 
-  # Log Intelligence spec §2's "embedded" Provider Router tier: a small,
-  # MIT-licensed model (Phi-4-mini-instruct) served locally via llama.cpp's
-  # OpenAI-compatible server, so devops-agent's AI log diagnosis works out
-  # of the box with no external API key and no per-token cost -- CPU-only,
-  # no GPU required. --hf-repo/--hf-file pull the GGUF from Hugging Face on
-  # first start and cache it in embedded_llm_models; every restart after
-  # that reuses the cached file rather than re-downloading it.
+  # Log Intelligence spec §2's "embedded" Provider Router tier: a locally
+  # served model via llama.cpp's OpenAI-compatible server, so devops-agent's
+  # AI log diagnosis works out of the box with no external API key and no
+  # per-token cost -- CPU-only, no GPU required. --hf-repo/--hf-file pull
+  # the GGUF from Hugging Face on first start and cache it in
+  # embedded_llm_models; every restart after that reuses the cached file
+  # rather than re-downloading it.
+  #
+  # Qwen2.5-7B-Instruct (Apache-2.0), not Phi-4-mini-instruct -- roughly 2x
+  # the parameters for meaningfully better diagnosis quality, at the cost of
+  # roughly proportionally slower CPU inference and a bigger memory
+  # footprint (see mem_limit's comment below). Swapping the model back out
+  # means changing all four of: this command's --hf-repo/--hf-file, the
+  # EMBEDDED_LLM_MODEL env var just above, services/devops-agent/main.go's
+  # Go-level default (only matters if that env var is ever unset), and the
+  # Helm chart's equivalents (values.yaml/configmap.yaml/deployments.yaml) --
+  # none of these are wired to a single shared source of truth today.
   #
   # This container image/flag set is llama.cpp's documented server usage as
   # of this writing -- verify against https://github.com/ggml-org/llama.cpp's
@@ -838,33 +848,38 @@ services:
     security_opt:
       - "no-new-privileges:true"
     image: ghcr.io/ggml-org/llama.cpp:server
-    # Deliberately NOT the Helm chart's own resources (3Gi request / 4Gi
-    # limit, installer/helm/kubewatch-erp/values.yaml's devopsAgent.
-    # embeddedLlm.resources) -- those numbers assume a real Kubernetes
-    # node with headroom to spare. A single-box self-hosted install has no
-    # such guarantee: this exact container was observed (docker stats) at
-    # 1.57GiB RSS and 208% CPU during a real diagnosis on a 5.8GB-total
-    # host with zero memory limits anywhere, which left the kernel's OOM
-    # killer free to kill an unrelated process under pressure instead of
-    # scoping the damage to this one container.
+    # Deliberately NOT the Helm chart's own resources (installer/helm/
+    # kubewatch-erp/values.yaml's devopsAgent.embeddedLlm.resources, bumped
+    # to match this same model swap) -- those assume a real Kubernetes node
+    # with headroom to spare. A single-box self-hosted install has no such
+    # guarantee.
     #
-    # mem_limit is 3g, not 2g, specifically because 1.57GiB observed during
-    # ONE diagnosis leaves too thin a margin above a 2g cap -- a longer log
-    # excerpt or a bigger prompt could plausibly cross it and get this
-    # container OOM-killed mid-diagnosis, which a customer would see as a
-    # failed "Diagnose with AI" call. mem_reservation stays at the
-    # steady-state-appropriate 1.5g (the soft target the kernel reclaims
-    # toward under pressure, not a hard cap), so this change only widens
-    # the ceiling for a genuine spike, it doesn't pre-commit more memory
-    # than before. Safe to do now that the host also has swap configured as
-    # a backstop (see installer README / ops notes) -- raise mem_limit
-    # further if you have a bigger box, or lower it back toward
-    # mem_reservation if you'd rather fail a diagnosis than risk the rest
-    # of the stack under real memory pressure. The two settings below are
-    # compose's classic per-service limits, not the deploy.resources block,
-    # so they take effect even without Swarm.
-    mem_limit: 3g
-    mem_reservation: 1.5g
+    # These numbers are a projection, NOT yet a real docker-stats
+    # measurement of THIS model the way the previous Phi-4-mini-instruct
+    # figures were (1.57GiB RSS / 208% CPU, observed on a 5.8GB-total host) --
+    # re-measure after this model is actually running under real load and
+    # tighten these back down if they're leaving too much headroom
+    # committed, or widen them further if they're not enough. The starting
+    # point here: the model file itself is ~4.68GB (vs. ~2.3GB before), so
+    # mem_limit must clear that on its own before any KV-cache/runtime
+    # overhead is even considered -- 3g (the old limit) would OOM-kill this
+    # container on load alone, not just under a large-prompt spike the way
+    # the old comment described. mem_limit is set well above the raw
+    # weights size to leave room for --ctx-size 8192's KV cache plus
+    # activation buffers; mem_reservation is the steady-state soft target,
+    # not a hard cap, same relationship as before. cpus is left unchanged --
+    # inference will be proportionally slower on the same core count, which
+    # is exactly why the LLM client timeout (shared/llm/openai.go) and the
+    # diagnosis worker's execution deadline (services/devops-agent/
+    # worker.go) were both raised alongside this. Safe to do given the host
+    # also has swap configured as a backstop (see installer README / ops
+    # notes) -- raise further if you have a bigger box, or lower back
+    # toward mem_reservation if you'd rather fail a diagnosis than risk the
+    # rest of the stack under real memory pressure. The two settings below
+    # are compose's classic per-service limits, not the deploy.resources
+    # block, so they take effect even without Swarm.
+    mem_limit: 8g
+    mem_reservation: 5g
     cpus: "2"
     environment:
       # Hugging Face has started rejecting the --hf-repo/--hf-file lookup
@@ -878,9 +893,9 @@ services:
       HF_TOKEN: ${HF_TOKEN:-}
     command:
       - "--hf-repo"
-      - "unsloth/Phi-4-mini-instruct-GGUF"
+      - "bartowski/Qwen2.5-7B-Instruct-GGUF"
       - "--hf-file"
-      - "Phi-4-mini-instruct-Q4_K_M.gguf"
+      - "Qwen2.5-7B-Instruct-Q4_K_M.gguf"
       - "--host"
       - "0.0.0.0"
       - "--port"
