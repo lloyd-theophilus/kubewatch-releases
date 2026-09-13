@@ -55,13 +55,19 @@ ingester:
 # error and drops the batch -- no retry, no dead-letter. This directly
 # collides with the edge-device store-and-forward buffer (AI-Ops Feature
 # 6, agent/internal/buffer): its ring buffer is capped at 1000 snapshots
-# with no age-based expiry, and the agent's push interval is 2 minutes
-# (agent/cmd/agent/main.go), so a device that reconnects after being
-# offline for up to ~33h can legitimately replay samples that old -- the
-# "expected offline windows" feature (services/alert-engine/edge_devices.go)
-# exists specifically because outages of that length are a supported,
-# not exceptional, scenario. 48h covers the full buffer-capped worst case
-# with margin.
+# with no age-based expiry, and the agent's push interval defaults to 15
+# seconds (KUBEWATCH_INTERVAL, agent/cmd/agent/main.go) -- NOT the 2
+# minutes this comment previously (and incorrectly) claimed -- so a device
+# that reconnects after being offline for up to ~4.2h (1000 * 15s) can
+# legitimately replay samples that old -- the "expected offline windows"
+# feature (services/alert-engine/edge_devices.go) exists specifically
+# because outages of that length are a supported, not exceptional,
+# scenario. 48h still covers the full buffer-capped worst case with wide
+# margin at the real 15-second interval. (Doc-only fix: the actual 15s
+# default is deliberately left unchanged here -- whether 15s or something
+# closer to 2 minutes is the right push interval is a real product/cost
+# tradeoff that deserves its own decision, not a side effect of correcting
+# this comment.)
 limits:
   out_of_order_time_window: 48h
 
