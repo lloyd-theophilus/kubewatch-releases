@@ -1032,15 +1032,15 @@ services:
       - sh
       - -c
       - |
+        set -e
         echo "Applying database migrations…"
         # A glob that matches nothing expands to its own literal pattern
         # string in sh (no nullglob here), so an empty/missing /migrations
         # directory would otherwise silently "succeed" with zero migrations
         # ever applied — sed would fail to open a file literally named
-        # "/migrations/*.sql", but the `|| true` below swallows that,
-        # masking what is actually a critical failure as "Migrations
-        # complete.". Fail loudly instead: this always means the updater's
-        # migrations refresh didn't run or didn't land where expected.
+        # "/migrations/*.sql". Fail loudly instead: this always means the
+        # updater's migrations refresh didn't run or didn't land where
+        # expected.
         set -- /migrations/*.sql
         if [ ! -e "$$1" ]; then
           echo "ERROR: no .sql files found in /migrations — refusing to report success. Check that ./migrations on the host is actually populated (see the updater container's own logs: docker logs kubewatch-updater)." >&2
@@ -1048,7 +1048,12 @@ services:
         fi
         for f in /migrations/*.sql; do
           echo ">> applying $$f (Up only)"
-          sed '/-- +goose Down/,$$d' "$$f" | psql -h postgres -U kubewatch -d kubewatch -v ON_ERROR_STOP=0 || true
+          # ON_ERROR_STOP=1, no `|| true`: a genuine SQL error in a migration
+          # must fail this container and block dependent services from
+          # starting against a half-migrated schema, not get silently
+          # swallowed and reported as "Migrations complete." (this already
+          # happened once — see infra/migrations/067_plan_limits_log_streaming_sso_columns.sql).
+          sed '/-- +goose Down/,$$d' "$$f" | psql -h postgres -U kubewatch -d kubewatch -v ON_ERROR_STOP=1
         done
         echo "Migrations complete."
     depends_on:

@@ -234,6 +234,15 @@ install_self_hosted_erp() {
   APP_VERSION=$(curl -fsSL "${RELEASES}/VERSION" 2>/dev/null | tr -d '[:space:]')
   APP_VERSION="${APP_VERSION:-latest}"
 
+  # Pin every kubewatch-* image in the just-downloaded compose file to this
+  # real, reproducible version instead of the mutable :latest tag it
+  # hardcodes -- without this, `docker compose pull` below always fetches
+  # whatever :latest currently resolves to in GHCR, which can already be a
+  # newer (and untested against this exact release) build by the time this
+  # install runs. A no-op when APP_VERSION fell back to "latest" above.
+  sed -i.bak -E "s#(ghcr\.io/lloyd-theophilus/kubewatch-[a-z-]+):latest#\1:${APP_VERSION}#g" docker-compose.yml
+  rm -f docker-compose.yml.bak
+
   # Write .env file
   # KUBEWATCH_LICENSE_KEY is intentionally absent: a 30-day trial starts automatically.
   # After purchase, add KUBEWATCH_LICENSE_KEY=<your-key> here and restart.
