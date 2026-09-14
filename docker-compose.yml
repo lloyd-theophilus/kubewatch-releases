@@ -137,6 +137,7 @@ services:
       SYNTHETICS_SERVICE_URL: http://synthetics:8025
       EXPORT_TARGETS_SERVICE_URL: http://export-targets:8026
       WEBHOOK_GATEWAY_SERVICE_URL: http://webhook-gateway:8018
+      EXEC_GATEWAY_SERVICE_URL: http://exec-gateway:8027
       IAC_SERVICE_URL: http://iac:8019
       CREDENTIALS_SERVICE_URL: http://credentials:8024
       # Only route proxied here is the public marketing-email unsubscribe link
@@ -483,6 +484,8 @@ services:
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
       NATS_URL: nats://nats:4222
       AUTH_SERVICE_URL: http://auth:8001
+      # Authenticates exec-gateway's calls to /internal/agent-for-resource.
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -504,6 +507,7 @@ services:
     mem_limit: 128m
     mem_reservation: 64m
     environment:
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN}
       <<: *env-defaults
       PORT: "8008"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
@@ -579,6 +583,7 @@ services:
     mem_limit: 128m
     mem_reservation: 64m
     environment:
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN}
       <<: *env-defaults
       PORT: "8025"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
@@ -602,6 +607,7 @@ services:
     mem_limit: 128m
     mem_reservation: 64m
     environment:
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN}
       <<: *env-defaults
       PORT: "8026"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
@@ -636,6 +642,29 @@ services:
       postgres:
         condition: service_healthy
 
+  # Interactive agent access (exec, port-forward, file-browse) — extracted
+  # out of live-data since none of these three features share any state
+  # with the rest of that service. Resolves "which agent owns this pod/
+  # container" via live-data's own /internal/agent-for-resource endpoint
+  # (its in-memory agent-state cache can't be shared across processes).
+  exec-gateway:
+    logging: *default-logging
+    security_opt:
+      - "no-new-privileges:true"
+    image: ghcr.io/lloyd-theophilus/kubewatch-exec-gateway:latest
+    mem_limit: 128m
+    mem_reservation: 64m
+    environment:
+      <<: *env-defaults
+      PORT: "8027"
+      KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
+      LIVE_DATA_SERVICE_URL: http://live-data:8009
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   # Infrastructure Automation control-plane API — Projects/Vaults/Secrets/
   # Variables/Stacks/Runs CRUD, project-scoped RBAC, plan-gating, audit,
   # and run dispatch. IAC_VAULT_MASTER_KEY must be identical on this
@@ -651,6 +680,7 @@ services:
     mem_limit: 128m
     mem_reservation: 64m
     environment:
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN}
       <<: *env-defaults
       PORT: "8019"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
@@ -675,6 +705,7 @@ services:
       - "no-new-privileges:true"
     image: ghcr.io/lloyd-theophilus/kubewatch-credentials:latest
     environment:
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN}
       <<: *env-defaults
       PORT: "8024"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
@@ -695,6 +726,7 @@ services:
     mem_limit: 1g
     mem_reservation: 128m
     environment:
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN}
       <<: *env-defaults
       PORT: "8020"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
@@ -721,6 +753,7 @@ services:
     mem_limit: 128m
     mem_reservation: 64m
     environment:
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN}
       <<: *env-defaults
       PORT: "8010"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
@@ -743,6 +776,7 @@ services:
     mem_limit: 128m
     mem_reservation: 64m
     environment:
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN}
       <<: *env-defaults
       PORT: "8021"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
@@ -770,6 +804,7 @@ services:
     mem_limit: 128m
     mem_reservation: 64m
     environment:
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN}
       <<: *env-defaults
       PORT: "8022"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
@@ -798,6 +833,7 @@ services:
     mem_limit: 128m
     mem_reservation: 64m
     environment:
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN}
       <<: *env-defaults
       PORT: "8023"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
@@ -924,6 +960,7 @@ services:
     mem_limit: 128m
     mem_reservation: 64m
     environment:
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN}
       <<: *env-defaults
       PORT: "8011"
       KUBEWATCH_MODE: ${KUBEWATCH_MODE:-selfhosted}
