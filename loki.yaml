@@ -120,24 +120,12 @@ common:
       access_key_id: ${LOKI_S3_ACCESS_KEY}
       secret_access_key: ${LOKI_S3_SECRET_KEY}
       insecure: ${LOKI_S3_INSECURE}
-      # Self-hosted's own x-loki-common anchor points these three at the
-      # bundled MinIO and sets this true (plain HTTP, matching MinIO's own
-      # unencrypted listener) and s3forcepathstyle true alongside it (see
-      # below). docker-compose.saas.yml's loki-* overlay points LOKI_S3_*
-      # at real AWS S3 instead and sets both false -- leaving either true
-      # against a real HTTPS-only, virtual-hosted-style endpoint breaks
-      # every write/read.
-      #
-      # MinIO needs path-style bucket addressing (http://host:port/bucket/
-      # ...); real AWS S3 needs the opposite (virtual-hosted-style,
-      # bucket.host:port/...). Confirmed the hard way: with this false
-      # against MinIO, every component tried to resolve
-      # "loki-chunks.minio:9000" as a hostname and failed outright ("no
-      # such host") instead of talking to MinIO at all. Mimir needs no
-      # equivalent flag against the same MinIO -- its S3 client defaults
-      # differently (confirmed by running both images side by side against
-      # an empty bucket: Mimir's error was "bucket does not exist", i.e. it
-      # already reached MinIO; Loki's was the DNS failure above).
+      # Loki 3.1.1 propagates common.storage.s3 to every object-store client.
+      # MinIO requires true here: http://minio:9000/bucket/object, not the
+      # unresolvable bucket.minio hostname. Choose this independently of TLS;
+      # an HTTPS S3-compatible endpoint can also require path-style URLs.
+      # AWS normally uses false. The SaaS overlay exposes AWS_S3_FORCE_PATH_STYLE
+      # so CI or an external MinIO deployment can explicitly select true.
       s3forcepathstyle: ${LOKI_S3_FORCE_PATH_STYLE}
       # No inline default here (unlike mimir.yaml's bucket_name) -- Loki's
       # expander doesn't support one, same reasoning as this block's own

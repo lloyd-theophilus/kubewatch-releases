@@ -171,10 +171,9 @@ install_self_hosted_erp() {
   VULNSCAN_VAULT_MASTER_KEY="${VULNSCAN_VAULT_MASTER_KEY:-$(openssl rand -base64 32)}"
   EXPORT_TARGETS_VAULT_MASTER_KEY="${EXPORT_TARGETS_VAULT_MASTER_KEY:-$(openssl rand -base64 32)}"
   SYNTHETICS_VAULT_MASTER_KEY="${SYNTHETICS_VAULT_MASTER_KEY:-$(openssl rand -base64 32)}"
-  # MinIO (Mimir's object-storage backend) only sets its root credentials on
-  # first volume initialization, same non-regenerate-on-reinstall reasoning
-  # as DB_PASSWORD above -- a new password would fail to authenticate
-  # against the existing minio_data volume.
+  # Keep the established MinIO credentials in sync with every Mimir/Loki
+  # client. A routine reinstall must not rotate the storage root identity;
+  # generation is only a fallback when no existing value was recorded.
   MINIO_ROOT_USER="${MINIO_ROOT_USER:-kubewatch}"
   MINIO_ROOT_PASSWORD="${MINIO_ROOT_PASSWORD:-$(openssl rand -hex 16)}"
   # Shared secret gateway uses to authenticate to auth's internal
