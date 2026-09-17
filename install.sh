@@ -390,7 +390,9 @@ EOF
     exit 1
   fi
   echo "Starting services..."
+  docker compose up -d --wait --wait-timeout 180 notification
   docker compose up -d
+  docker compose run --rm migrate
 
   # Wait for health
   echo -n "Waiting for services to be ready"
